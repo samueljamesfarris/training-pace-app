@@ -1,0 +1,136 @@
+@import 'tailwindcss';
+
+/* Theme is driven by a class on <html>, not by prefers-color-scheme, because
+   the choice is about the sky outside rather than an OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+
+  --color-go: var(--go);
+  --color-go-ink: var(--go-ink);
+  --color-hold: var(--hold);
+  --color-hold-ink: var(--hold-ink);
+  --color-next: var(--next);
+  --color-next-ink: var(--next-ink);
+  --color-stop: var(--stop);
+  --color-stop-ink: var(--stop-ink);
+
+  --color-work: var(--work);
+  --color-work-ink: var(--work-ink);
+  --color-recovery: var(--recovery);
+  --color-recovery-ink: var(--recovery-ink);
+  --color-neutral-kind: var(--neutral-kind);
+  --color-neutral-kind-ink: var(--neutral-kind-ink);
+
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-bad-ink: var(--bad-ink);
+  --color-info: var(--info);
+  --color-info-ink: var(--info-ink);
+}
+
+/* Daylight: dark ink on a light ground, for direct morning sun. */
+:root {
+  --surface: #f8fafc;
+  --card: #ffffff;
+  --raised: #e2e8f0;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #cbd5e1;
+
+  --go: #15803d;
+  --go-ink: #ffffff;
+  --hold: #b45309;
+  --hold-ink: #ffffff;
+  --next: #0f172a;
+  --next-ink: #ffffff;
+  --stop: #b91c1c;
+  --stop-ink: #ffffff;
+
+  --work: #b91c1c;
+  --work-ink: #ffffff;
+  --recovery: #0369a1;
+  --recovery-ink: #ffffff;
+  --neutral-kind: #334155;
+  --neutral-kind-ink: #ffffff;
+
+  --good: #16a34a;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --bad-ink: #ffffff;
+  --info: #4338ca;
+  --info-ink: #ffffff;
+}
+
+/* Pre-dawn: near-black ground, light type, and bright button fills dark enough
+   in ink to stay readable without flaring in the dark. */
+.dark {
+  --surface: #04070c;
+  --card: #0d131c;
+  --raised: #1b2532;
+  --ink: #f1f5f9;
+  --muted: #94a3b8;
+  --line: #2b3746;
+
+  --go: #22c55e;
+  --go-ink: #04140a;
+  --hold: #fbbf24;
+  --hold-ink: #1a1200;
+  --next: #e2e8f0;
+  --next-ink: #0b0f14;
+  --stop: #f87171;
+  --stop-ink: #1a0505;
+
+  --work: #f87171;
+  --work-ink: #1a0505;
+  --recovery: #38bdf8;
+  --recovery-ink: #04121a;
+  --neutral-kind: #cbd5e1;
+  --neutral-kind-ink: #0b0f14;
+
+  --good: #22c55e;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --bad-ink: #1a0505;
+  --info: #a5b4fc;
+  --info-ink: #0b0f14;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  /* Numbers must not reflow as digits change. */
+  font-variant-numeric: tabular-nums;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+/* No accidental text selection or double-tap zoom on the big controls. */
+button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+select {
+  color: var(--ink);
+  background: var(--card);
+}

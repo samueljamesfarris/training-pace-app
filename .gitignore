@@ -1,0 +1,10 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+
+# Machine-specific Claude Code settings (launch.json is shared on purpose)
+.claude/settings.local.json
