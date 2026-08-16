@@ -94,4 +94,23 @@ npm run build
 
 ## Beep vocabulary
 
-Not implemented until step 4; documented there.
+Cues are scheduled against `AudioContext.currentTime`, from the same wall-clock
+boundary instant the countdown displays, so they fire on time even when iOS
+throttles the JS timer loop.
+
+| When | Sound |
+| --- | --- |
+| 10 s before a segment ends | two short beeps, 784 Hz |
+| 3, 2, 1 s | one short beep each, 1046 Hz |
+| segment boundary / next segment | one long 1.5 s beep, 1568 Hz |
+| manual lap (free run) | one short chirp, 1318 Hz |
+
+Frequencies sit in the 750–1600 Hz band, where a phone speaker is loudest and
+wind noise is weakest.
+
+Only timed segments can be cued ahead, because only they have a knowable end
+instant. A distance segment sounds its boundary on arrival, with no countdown —
+there is no honest way to know when a distance will be reached.
+
+Toggles, volume, and a test button for each cue live in the dev panel; the
+header has a mute.

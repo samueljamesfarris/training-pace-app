@@ -23,6 +23,13 @@ export function formatPace(mph: number | null | undefined): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+/** Pace already in seconds per mile, formatted `m:ss`. */
+export function formatPaceSeconds(sec: number | null | undefined): string {
+  if (sec == null || !Number.isFinite(sec)) return '--:--';
+  const total = Math.round(sec);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 /** mph to one decimal. */
 export function formatSpeed(mph: number | null | undefined): string {
   if (mph == null || !Number.isFinite(mph)) return '--.-';

@@ -1,6 +1,7 @@
 import { haversineMeters } from './geo';
-import { RollingSpeed } from './smoothing';
+import { RollingSpeed, SpikeGate } from './smoothing';
 import type { RawFix } from './types';
+import { MAX_SANE_MPH, MIN_SANE_MPH, MPS_TO_MPH } from './units';
 
 /** Fixes worse than this don't get to move the odometer. */
 export const ACCURACY_GATE_M = 25;
@@ -15,11 +16,49 @@ const MIN_LEG_M = 5;
 /** Leg length required to clear the accuracy circle, as a multiple of it. */
 const NOISE_FLOOR_FACTOR = 2;
 
-export const DEFAULT_SMOOTHING_MS = 3000;
+/**
+ * Raised from 3s after the first real ride: pace is far twitchier than speed
+ * (a 0.5 mph wobble at 7 mph moves pace by ~35 s/mile), so the hero number
+ * churned. 5s costs a couple of seconds of lag and visibly settles it.
+ */
+export const DEFAULT_SMOOTHING_MS = 5000;
+
+/** Below this the phone is parked; show a clean 0.0 rather than noise. */
+const STATIONARY_MPH = 0.5;
+/**
+ * Pace must be sane for this long before it appears, and insane for this long
+ * before it disappears. Stops a rocking phone on a bike flashing a pace on and
+ * off as its noise crosses the 3 mph floor.
+ */
+const PACE_HYSTERESIS_MS = 2000;
+/** Don't move the shown pace for less than this, in seconds per mile. */
+const PACE_DEADBAND_SEC = 3;
+/**
+ * Movement has to be sustained, not momentary. Rocking a phone on a handlebar
+ * mount throws single-second bursts well past any instantaneous speed gate, and
+ * those bursts were creeping the odometer while parked.
+ */
+const MOVE_CONFIRM_MS = 2000;
+const MOVE_RELEASE_MS = 3000;
+/**
+ * Asymmetric on purpose. Starting the odometer needs ~2 mph, comfortably above
+ * the ~1.5 mph a 5s average of handlebar rocking produces, while stopping it
+ * only needs to fall under 1 mph — so noise can never start it, but a genuine
+ * slow recovery jog never stops it either.
+ */
+const MOVE_CONFIRM_MPS = 0.894;
 
 export interface GpsSnapshot {
   /** Smoothed speed for display, m/s. Frozen at its last value while stale. */
   displayMps: number | null;
+  /**
+   * Pace to display, in seconds per mile, already hysteresis-gated and
+   * deadbanded. Null means show `--:--`. Kept here rather than derived in the
+   * component because it is stateful, and state in a render path is a bug farm.
+   */
+  paceSecPerMile: number | null;
+  /** Speed samples the spike gate threw away this session. */
+  spikesRejected: number;
   /** Unsmoothed speed of the most recent fix, m/s. Dev panel only. */
   rawMps: number | null;
   stale: boolean;
@@ -41,6 +80,16 @@ export interface GpsSnapshot {
  */
 export class GpsEngine {
   private smoother = new RollingSpeed(DEFAULT_SMOOTHING_MS);
+  private gate = new SpikeGate();
+  /** Display-stabilisation state. */
+  private aboveSince: number | null = null;
+  private belowSince: number | null = null;
+  private paceValid = false;
+  private shownPaceSec: number | null = null;
+  private movingSince: number | null = null;
+  private stoppedSince: number | null = null;
+  private moving = false;
+  spikesRejected = 0;
   /** Previous fix of any quality, for the Haversine speed fallback. */
   private prevFix: RawFix | null = null;
   /** Previous accuracy-passing fix, used only to spot arrival gaps. */
@@ -79,8 +128,12 @@ export class GpsEngine {
     const speed = this.deriveSpeed(fix);
     if (speed != null) {
       this.rawMps = speed;
-      this.smoother.push(receivedAt, speed);
+      // The gate sees every sample so its history stays current; only accepted
+      // ones reach the smoother.
+      if (this.gate.accept(speed)) this.smoother.push(receivedAt, speed);
+      else this.spikesRejected++;
     }
+    this.updateMovement(receivedAt);
 
     if (fix.accuracy > ACCURACY_GATE_M) {
       // Still usable for display, never for distance. Leave the anchor alone so
@@ -119,9 +172,11 @@ export class GpsEngine {
       return;
     }
 
-    // A phone sitting still still wanders several meters a second, and that
-    // wander is fast enough to clear a naive 1 mph gate. So the "are we moving"
-    // question is answered by the device's own speed whenever it gives us one.
+    // Not actually going anywhere: hold the leg open rather than re-anchoring.
+    // Nothing accumulates while parked, and because the anchor stays put, the
+    // real displacement from the parked spot is still counted on departure.
+    if (!this.moving) return;
+
     const deviceSpeed = fix.speed != null && fix.speed >= 0 ? fix.speed : null;
     if (deviceSpeed != null) {
       if (deviceSpeed > MIN_MOVE_MPS) this.distanceMeters += d;
@@ -169,14 +224,72 @@ export class GpsEngine {
     return this.lastFixAt == null || now - this.lastFixAt > DROPOUT_MS;
   }
 
+  /**
+   * Sustained-movement state machine. Confirming takes 2s so a burst can't
+   * start the odometer; releasing takes 3s so a genuine brief slow-down at the
+   * top of a hill doesn't stop it.
+   */
+  private updateMovement(now: number) {
+    const v = this.smoother.value(now);
+    const above = v != null && v > (this.moving ? MIN_MOVE_MPS : MOVE_CONFIRM_MPS);
+    if (above) {
+      this.stoppedSince = null;
+      if (this.movingSince == null) this.movingSince = now;
+      if (now - this.movingSince >= MOVE_CONFIRM_MS) this.moving = true;
+    } else {
+      this.movingSince = null;
+      if (this.stoppedSince == null) this.stoppedSince = now;
+      if (now - this.stoppedSince >= MOVE_RELEASE_MS) this.moving = false;
+    }
+  }
+
+  /**
+   * Decide whether a pace is worth showing, and by how much it may move.
+   * Only runs on fresh data — during a dropout the whole display is frozen,
+   * and letting validity decay would blank the pace mid-freeze.
+   */
+  private updatePaceDisplay(now: number, mph: number | null) {
+    const sane = mph != null && mph >= MIN_SANE_MPH && mph <= MAX_SANE_MPH;
+    if (sane) {
+      this.belowSince = null;
+      if (this.aboveSince == null) this.aboveSince = now;
+      if (now - this.aboveSince >= PACE_HYSTERESIS_MS) this.paceValid = true;
+    } else {
+      this.aboveSince = null;
+      if (this.belowSince == null) this.belowSince = now;
+      if (now - this.belowSince >= PACE_HYSTERESIS_MS) this.paceValid = false;
+    }
+
+    if (!this.paceValid || !sane) {
+      this.shownPaceSec = null;
+      return;
+    }
+    const target = 3600 / mph;
+    if (this.shownPaceSec == null || Math.abs(target - this.shownPaceSec) >= PACE_DEADBAND_SEC) {
+      this.shownPaceSec = target;
+    }
+  }
+
   snapshot(now: number): GpsSnapshot {
     const stale = this.isStale(now);
     if (!stale) {
       const v = this.smoother.value(now);
       if (v != null) this.frozenMps = v;
+      const mph = this.frozenMps == null ? null : this.frozenMps * MPS_TO_MPH;
+      this.updatePaceDisplay(now, mph);
     }
+    // Parked is parked: show a clean zero rather than the noise floor, and
+    // never a few tenths of a mph from a phone rocking on its mount.
+    const display =
+      this.frozenMps == null
+        ? null
+        : !this.moving || this.frozenMps * MPS_TO_MPH < STATIONARY_MPH
+          ? 0
+          : this.frozenMps;
     return {
-      displayMps: this.frozenMps,
+      displayMps: display,
+      paceSecPerMile: this.shownPaceSec,
+      spikesRejected: this.spikesRejected,
       rawMps: this.rawMps,
       stale,
       accuracy: this.lastAccuracy,
@@ -199,10 +312,19 @@ export class GpsEngine {
 
   resetForSession(startingDistance = 0) {
     this.smoother.clear();
+    this.gate.reset();
     this.prevFix = null;
     this.prevGood = null;
     this.anchor = null;
     this.frozenMps = null;
+    this.aboveSince = null;
+    this.belowSince = null;
+    this.paceValid = false;
+    this.shownPaceSec = null;
+    this.movingSince = null;
+    this.stoppedSince = null;
+    this.moving = false;
+    this.spikesRejected = 0;
     // These must go too, or a fresh session shows the last one's speed and
     // accuracy until its own first fix lands.
     this.lastFixAt = null;

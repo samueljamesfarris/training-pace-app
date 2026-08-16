@@ -3,6 +3,59 @@ interface Sample {
   v: number;
 }
 
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)]!;
+}
+
+/**
+ * Rejects single fixes that sit implausibly far from the recent median — the
+ * occasional GPS spike that otherwise drags the hero number to a nonsense pace
+ * and keeps contaminating it for the length of the smoothing window.
+ *
+ * The subtlety is that a naive median gate locks up: while it rejects, its own
+ * history stops updating, so a genuine hard acceleration looks "wrong" forever
+ * and the display never catches up. Hence the escape hatch — one wild sample is
+ * noise, two in a row is a real change, and the gate forgets the old regime.
+ */
+export class SpikeGate {
+  private hist: number[] = [];
+  private rejects = 0;
+
+  private windowSize: number;
+  /** Max deviation from the recent median, in m/s (~4 mph). */
+  private maxDeviation: number;
+  private maxConsecutiveRejects: number;
+
+  constructor(windowSize = 5, maxDeviation = 1.8, maxConsecutiveRejects = 2) {
+    this.windowSize = windowSize;
+    this.maxDeviation = maxDeviation;
+    this.maxConsecutiveRejects = maxConsecutiveRejects;
+  }
+
+  /** True if the sample should reach the smoother. */
+  accept(v: number): boolean {
+    if (this.hist.length >= 3) {
+      if (Math.abs(v - median(this.hist)) > this.maxDeviation) {
+        this.rejects++;
+        if (this.rejects <= this.maxConsecutiveRejects) return false;
+        this.hist = []; // sustained: this is the new truth, not an outlier
+        this.rejects = 0;
+      } else {
+        this.rejects = 0;
+      }
+    }
+    this.hist.push(v);
+    if (this.hist.length > this.windowSize) this.hist.shift();
+    return true;
+  }
+
+  reset() {
+    this.hist = [];
+    this.rejects = 0;
+  }
+}
+
 /**
  * Rolling time window over raw speed samples. GPS speed is jittery enough that
  * the instantaneous value is unreadable on a bouncing mount; this is what makes

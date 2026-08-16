@@ -7,6 +7,7 @@ import {
   formatClock,
   formatMiles,
   formatPace,
+  formatPaceSeconds,
   formatSpeed,
   mpsToMph,
 } from '../lib/units';
@@ -114,6 +115,15 @@ export function RideScreen({
             </span>
           )}
           <button
+            onClick={() => ride.applyAudio({ ...ride.audio, enabled: !ride.audio.enabled })}
+            aria-label="Toggle audio cues"
+            className={`rounded-md border px-2 py-1 text-xs font-bold ${
+              ride.audio.enabled ? 'border-line text-muted' : 'border-stop text-stop'
+            }`}
+          >
+            {ride.audio.enabled ? 'SOUND' : 'MUTED'}
+          </button>
+          <button
             onClick={ride.toggleTheme}
             aria-label="Toggle night mode"
             className="rounded-md border border-line px-2 py-1 text-xs font-bold text-muted"
@@ -148,7 +158,7 @@ export function RideScreen({
             <div
               className={`text-[clamp(4.5rem,29vw,15rem)] leading-[0.9] font-black tracking-tight ${dim}`}
             >
-              {formatPace(mph)}
+              {formatPaceSeconds(gps.paceSecPerMile)}
             </div>
             <div className="text-sm font-bold tracking-widest text-muted uppercase">
               min / mile
@@ -163,7 +173,7 @@ export function RideScreen({
             {workout ? (
               <>
                 <div className={dim}>
-                  <Stat label="min / mile" value={formatPace(mph)} size="lg" />
+                  <Stat label="min / mile" value={formatPaceSeconds(gps.paceSecPerMile)} size="lg" />
                 </div>
                 <Stat label="total time" value={formatClock(elapsed)} size="lg" />
               </>

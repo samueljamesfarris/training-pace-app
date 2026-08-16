@@ -242,6 +242,58 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
         </section>
 
         <section className="border-t border-line py-3">
+          <h3 className="mb-1 text-xs font-bold tracking-widest text-muted uppercase">
+            Audio cues
+          </h3>
+          <p className="mb-2 text-xs text-muted">
+            Tap a test button to hear each cue at the volume it will play outdoors. Audio:{' '}
+            <span className="font-bold">{ride.audioState}</span>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Toggle
+              label={ride.audio.enabled ? 'SOUND ON' : 'MUTED'}
+              on={ride.audio.enabled}
+              onChange={(v) => ride.applyAudio({ ...ride.audio, enabled: v })}
+            />
+            <Toggle
+              label="10s warning"
+              on={ride.audio.warning}
+              onChange={(v) => ride.applyAudio({ ...ride.audio, warning: v })}
+            />
+            <Toggle
+              label="3-2-1"
+              on={ride.audio.countdown}
+              onChange={(v) => ride.applyAudio({ ...ride.audio, countdown: v })}
+            />
+            <Toggle
+              label="Boundary"
+              on={ride.audio.boundary}
+              onChange={(v) => ride.applyAudio({ ...ride.audio, boundary: v })}
+            />
+          </div>
+          <Slider
+            label="Volume"
+            value={ride.audio.volume}
+            min={0.1}
+            max={1}
+            step={0.05}
+            onChange={(v) => ride.applyAudio({ ...ride.audio, volume: v })}
+            format={(v) => `${Math.round(v * 100)}%`}
+          />
+          <div className="mt-1 flex flex-wrap gap-2">
+            {(['warning', 'countdown', 'boundary', 'lap'] as const).map((c) => (
+              <button
+                key={c}
+                onClick={() => ride.previewCue(c)}
+                className="flex-1 rounded-lg border border-line py-2 text-sm font-bold text-ink"
+              >
+                Test {c === 'warning' ? '10s' : c === 'countdown' ? '3-2-1' : c}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="border-t border-line py-3">
           <h3 className="mb-2 text-xs font-bold tracking-widest text-muted uppercase">
             Suspend the JS loop
           </h3>
@@ -304,6 +356,11 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
           <Row label="stale" value={gps.stale ? 'YES' : 'no'} />
           <Row label="fixes" value={String(gps.fixCount)} />
           <Row label="rejected (accuracy)" value={String(gps.rejectedCount)} />
+          <Row label="spikes rejected" value={String(gps.spikesRejected)} />
+          <Row
+            label="shown pace"
+            value={gps.paceSecPerMile != null ? `${gps.paceSecPerMile.toFixed(1)} s/mi` : '--'}
+          />
           <Row label="dropout gaps" value={String(gps.dropoutCount)} />
           <Row label="distance" value={`${gps.distanceMeters.toFixed(1)} m`} />
           <Row label="session id" value={ride.session?.id.slice(0, 19) ?? '--'} />
