@@ -53,19 +53,25 @@ npm run dev
 ```
 
 Geolocation needs HTTPS, so `localhost` on the Mac works but the LAN address on
-a phone does not. For phone testing, deploy.
+a phone does not. For phone testing, push to `main` and use the deployed URL.
 
-## Deploy to a static host
+## Deploy
+
+Live at **https://samueljamesfarris.github.io/training-pace-app/**
+
+Every push to `main` builds and publishes automatically via
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). `npm run build`
+runs `tsc` first, so a type error fails the deploy rather than shipping a broken
+app to the phone.
+
+Vite builds with a relative `base`, which is what lets the same bundle work from
+the `/training-pace-app/` subpath without configuration.
+
+To build the static bundle by hand — it works from any HTTPS host:
 
 ```bash
 npm run build
 ```
-
-`dist/` is a self-contained static bundle with relative asset paths, so it works
-from any HTTPS host including a subdirectory. Drag `dist/` onto
-[app.netlify.com/drop](https://app.netlify.com/drop) for the fastest path to a
-real URL, or point Vercel / Cloudflare Pages / GitHub Pages at the repo with
-build command `npm run build` and output directory `dist`.
 
 ## Architecture notes
 
