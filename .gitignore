@@ -8,3 +8,6 @@ tsconfig.tsbuildinfo
 
 # Machine-specific Claude Code settings (launch.json is shared on purpose)
 .claude/settings.local.json
+
+# Real GPS logs are location data — keep them out of the public repo
+tests/logs/
