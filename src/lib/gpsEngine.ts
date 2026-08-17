@@ -47,6 +47,12 @@ const MOVE_RELEASE_MS = 3000;
  * slow recovery jog never stops it either.
  */
 const MOVE_CONFIRM_MPS = 0.894;
+/**
+ * How far back the Haversine fallback may reach for its baseline. A longer arm
+ * divides the position error by the same factor, which is the only way to get a
+ * usable speed out of position differencing.
+ */
+const HAVERSINE_BASELINE_MS = 4000;
 
 export interface GpsSnapshot {
   /** Smoothed speed for display, m/s. Frozen at its last value while stale. */
@@ -72,6 +78,12 @@ export interface GpsSnapshot {
   dropoutCount: number;
   /** True when the current speed came from Haversine rather than coords.speed. */
   derivedSpeed: boolean;
+  /**
+   * True before the first usable reading exists. A dropout badge means "the
+   * number you are looking at is frozen" — with nothing yet to freeze, the
+   * honest word is "acquiring".
+   */
+  acquiring: boolean;
 }
 
 /**
@@ -86,12 +98,12 @@ export class GpsEngine {
   private belowSince: number | null = null;
   private paceValid = false;
   private shownPaceSec: number | null = null;
+  /** Recent fixes, newest first, for the Haversine baseline. */
+  private recent: RawFix[] = [];
   private movingSince: number | null = null;
   private stoppedSince: number | null = null;
   private moving = false;
   spikesRejected = 0;
-  /** Previous fix of any quality, for the Haversine speed fallback. */
-  private prevFix: RawFix | null = null;
   /** Previous accuracy-passing fix, used only to spot arrival gaps. */
   private prevGood: RawFix | null = null;
   /** Start of the open leg the odometer is currently measuring. */
@@ -122,6 +134,9 @@ export class GpsEngine {
    */
   ingest(fix: RawFix, receivedAt: number) {
     this.fixCount++;
+    // A gap means the fixes either side aren't a continuous track, so the
+    // baseline history can't span it.
+    if (this.recent[0] && fix.t - this.recent[0].t > DROPOUT_MS) this.recent = [];
     this.lastFixAt = receivedAt;
     this.lastAccuracy = fix.accuracy;
 
@@ -133,16 +148,16 @@ export class GpsEngine {
       if (this.gate.accept(speed)) this.smoother.push(receivedAt, speed);
       else this.spikesRejected++;
     }
+    this.recent.unshift(fix);
+    if (this.recent.length > 12) this.recent.pop();
     this.updateMovement(receivedAt);
 
     if (fix.accuracy > ACCURACY_GATE_M) {
       // Still usable for display, never for distance. Leave the anchor alone so
       // the next good fix measures from the last good position, not this one.
       this.rejectedCount++;
-      this.prevFix = fix;
       return;
     }
-    this.prevFix = fix;
 
     const prevGood = this.prevGood;
     this.prevGood = fix;
@@ -200,24 +215,46 @@ export class GpsEngine {
   }
 
   /**
-   * `position.coords.speed` when the device gives us one, otherwise Haversine
-   * between consecutive fixes over their timestamp delta.
+   * `position.coords.speed` when the device gives us one, otherwise Haversine.
+   *
+   * iOS reports null speed whenever it can't determine one — in practice, most
+   * of the time the phone is standing still — so this path runs a lot, and it
+   * has to be honest about measurement error. Two fixes one second apart with
+   * 12 m accuracy can sit 3 m apart purely from wander, which naive
+   * differencing reports as 6.7 mph from a phone sitting on a bike rack.
+   *
+   * So: measure over the longest baseline available (up to a few seconds, which
+   * shrinks the error by that factor), and believe the displacement only if it
+   * is larger than the positions' own uncertainty. Anything smaller is noise,
+   * and noise means not moving.
    */
   private deriveSpeed(fix: RawFix): number | null {
     if (fix.speed != null && fix.speed >= 0 && Number.isFinite(fix.speed)) {
       this.derivedSpeed = false;
       return fix.speed;
     }
-    const prev = this.prevFix;
-    if (!prev) return null;
-    const dtMs = fix.t - prev.t;
-    // A stale pair spans a dropout; its average speed would be a fiction.
-    if (dtMs <= 0 || dtMs > DROPOUT_MS) return null;
-    const d = haversineMeters(prev.lat, prev.lon, fix.lat, fix.lon);
-    const v = d / (dtMs / 1000);
-    if (v > MAX_PLAUSIBLE_MPS) return null;
+
+    // Oldest fix still inside the baseline window; the longer the arm, the
+    // better the signal-to-noise. `recent` is newest-first, so keep walking
+    // back — taking the first match would give the shortest arm, which is
+    // precisely the noisy measurement this is here to avoid.
+    let base: RawFix | null = null;
+    for (const cand of this.recent) {
+      const dt = fix.t - cand.t;
+      if (dt <= 0) continue;
+      if (dt > HAVERSINE_BASELINE_MS) break;
+      base = cand;
+    }
+    if (!base) return null;
+
+    const dtSec = (fix.t - base.t) / 1000;
+    const d = haversineMeters(base.lat, base.lon, fix.lat, fix.lon);
+    const uncertainty = (base.accuracy + fix.accuracy) / 2;
     this.derivedSpeed = true;
-    return v;
+    // Indistinguishable from standing still.
+    if (d <= uncertainty) return 0;
+    const v = d / dtSec;
+    return v > MAX_PLAUSIBLE_MPS ? null : v;
   }
 
   isStale(now: number): boolean {
@@ -287,6 +324,7 @@ export class GpsEngine {
           ? 0
           : this.frozenMps;
     return {
+      acquiring: this.frozenMps == null,
       displayMps: display,
       paceSecPerMile: this.shownPaceSec,
       spikesRejected: this.spikesRejected,
@@ -305,16 +343,16 @@ export class GpsEngine {
   /** Called on pause/resume so a stop never gets bridged into the odometer. */
   dropAnchor() {
     this.anchor = null;
-    this.prevFix = null;
     this.prevGood = null;
+    this.recent = [];
     this.smoother.clear();
   }
 
   resetForSession(startingDistance = 0) {
     this.smoother.clear();
     this.gate.reset();
-    this.prevFix = null;
     this.prevGood = null;
+    this.recent = [];
     this.anchor = null;
     this.frozenMps = null;
     this.aboveSince = null;

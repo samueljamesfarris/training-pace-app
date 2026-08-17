@@ -62,7 +62,12 @@ function GpsChip({ ride }: { ride: Ride }) {
       <span>
         {acc == null ? 'GPS --' : `±${Math.round(acc)} m`}
       </span>
-      {gps.stale && gpsActive && (
+      {gpsActive && gps.stale && gps.acquiring && (
+        <span className="rounded bg-raised px-1.5 py-0.5 text-xs font-bold text-muted">
+          ACQUIRING
+        </span>
+      )}
+      {gpsActive && gps.stale && !gps.acquiring && (
         <span className="rounded bg-bad px-1.5 py-0.5 text-xs font-bold text-bad-ink">
           GPS {ageSec != null ? `${ageSec}s` : ''}
         </span>
