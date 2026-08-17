@@ -42,9 +42,24 @@ driving the session, and where the audio cues will attach:
 A free run has no segment to count down, so pace stays the hero and the middle
 button records a lap instead of advancing.
 
-Not yet built (later steps): wake lock, service worker / home-screen install,
-reload-resume prompt, audio cues, target paces and tolerance bands, history and
-CSV export.
+Plus step 2: screen wake lock, offline service worker, home-screen install, and
+the reload-resume prompt.
+
+Not yet built (later steps): spoken cues on top of the beeps, target paces and
+tolerance bands, history and CSV export.
+
+### Reliability behaviours
+
+- **Wake lock** is held only while a session is live, and re-acquired on every
+  return to visible — iOS drops it on backgrounding and never gives it back.
+  If it can't be held, the ride screen says so rather than failing silently.
+- **Offline**: content-hashed bundles are cached permanently; the HTML entry is
+  network-first, so you get new builds when online and the last good build when
+  not. A cold start in a dead zone works.
+- **Updates never apply mid-workout.** A new version waits, and while a session
+  is running the banner is a note rather than a button.
+- **Resume** carries a heartbeat (`lastSeenAt`). If the app dies, the gap until
+  you resume is excluded from the workout, and the session comes back paused.
 
 ## Run locally
 

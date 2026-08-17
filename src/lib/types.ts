@@ -48,6 +48,12 @@ export interface SessionRecord {
   workout: ResolvedWorkout | null;
   /** Segment (or lap) start instants, in order. */
   boundaries: SegmentBoundary[];
+  /**
+   * Heartbeat: the last moment the app was demonstrably alive and persisting.
+   * If the app dies, everything after this is time the athlete wasn't running,
+   * and resume excludes it rather than silently inflating the workout.
+   */
+  lastSeenAt: number;
 }
 
 /** Paused milliseconds falling inside the window [from, to]. */

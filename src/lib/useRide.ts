@@ -3,12 +3,13 @@ import {
   appendFixes,
   dbUnavailable,
   deleteWorkout as dbDeleteWorkout,
+  findUnfinishedSession,
   getFixes,
   listWorkouts,
   putSession,
   putWorkout,
 } from './db';
-import { DEFAULT_SMOOTHING_MS, GpsEngine, type GpsSnapshot } from './gpsEngine';
+import { DEFAULT_SMOOTHING_MS, DROPOUT_MS, GpsEngine, type GpsSnapshot } from './gpsEngine';
 import {
   DEFAULT_SIM,
   GeoSource,
@@ -28,6 +29,7 @@ import { computeAutoAdvance, currentIndex, currentSegment } from './segments';
 import { elapsedMs, wallClockAfter, type RawFix, type SessionRecord } from './types';
 import { PRESET_WORKOUTS, resolveWorkout, type WorkoutDef } from './workouts';
 import { applyTheme, loadTheme, type Theme } from './theme';
+import { WakeLockManager, type WakeLockState } from './wakeLock';
 
 export type SourceKind = 'geo' | 'sim' | 'replay';
 
@@ -67,6 +69,10 @@ export function useRide() {
   const [cueEpoch, setCueEpoch] = useState(0);
   const [customWorkouts, setCustomWorkouts] = useState<WorkoutDef[]>([]);
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
+  const [wakeLockEnabled, setWakeLockEnabled] = useState(true);
+  const [wakeLockState, setWakeLockState] = useState<WakeLockState>('released');
+  /** An unfinished session found in storage on load, awaiting resume/discard. */
+  const [resumable, setResumable] = useState<SessionRecord | null>(null);
 
   // Refs mirror state for the callbacks that live outside React's render cycle
   // (the position source, the tick loop, the persistence loop).
@@ -77,7 +83,10 @@ export function useRide() {
   const fixBuffer = useRef<RawFix[]>([]);
   /** Late-bound so the tick loop and the fix handler can both drive it. */
   const advanceRef = useRef<() => void>(() => {});
+  /** Late-bound: the visibility handler may need to restart a dead watch. */
+  const startSourceRef = useRef<() => void>(() => {});
   const beeps = useRef(new BeepEngine()).current;
+  const wakeLock = useRef(new WakeLockManager()).current;
   /** Fixes captured while warming up, before a session exists. */
   const warmupLog = useRef<RawFix[]>([]);
 
@@ -103,6 +112,22 @@ export function useRide() {
     (cue: 'warning' | 'countdown' | 'boundary' | 'lap') => beeps.preview(cue),
     [beeps],
   );
+
+  useEffect(() => {
+    wakeLock.onChange = () => setWakeLockState(wakeLock.state);
+    setWakeLockState(wakeLock.supported ? wakeLock.state : 'unsupported');
+    return () => {
+      wakeLock.onChange = null;
+    };
+  }, [wakeLock]);
+
+  // Hold the lock exactly while a session is live; drop it the moment it isn't,
+  // so a finished workout can't keep the screen burning in a pocket.
+  const sessionLive = !!session && session.status !== 'finished';
+  useEffect(() => {
+    if (sessionLive && wakeLockEnabled) void wakeLock.acquire();
+    else void wakeLock.release();
+  }, [sessionLive, wakeLockEnabled, wakeLock]);
 
   const toggleTheme = useCallback(() => {
     setThemeState((t) => (t === 'dark' ? 'light' : 'dark'));
@@ -188,6 +213,8 @@ export function useRide() {
     setGpsActive(true);
   }, [sourceKind, replayFixes, replayRate, handleFix]);
 
+  startSourceRef.current = startSource;
+
   /**
    * Picking a source is itself a user gesture, so it both swaps and starts the
    * watch — which is also the moment iOS will accept a permission request.
@@ -234,10 +261,18 @@ export function useRide() {
       // anything already scheduled. Resume it and lay the cues down again.
       void beeps.resume();
       setCueEpoch((e) => e + 1);
+      // iOS also releases the wake lock on background and never returns it.
+      void wakeLock.reacquire();
+      // And it may have quietly killed watchPosition. If no fix has arrived for
+      // well past the dropout window, assume the watch is dead and restart it.
+      const last = engine.snapshot(t).lastFixAt;
+      if (shouldRun.current && last != null && t - last > DROPOUT_MS * 2) {
+        startSourceRef.current();
+      }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [engine, beeps]);
+  }, [engine, beeps, wakeLock]);
 
   const persistNow = useCallback(
     (override?: Partial<SessionRecord>) => {
@@ -251,6 +286,7 @@ export function useRide() {
         ...override,
         distanceMeters: engine.distanceMeters,
         fixCount: engine.fixCount,
+        lastSeenAt: Date.now(),
       };
       void putSession(merged).then(() => {
         if (dbUnavailable) setPersistError(dbUnavailable);
@@ -308,6 +344,7 @@ export function useRide() {
       // Flattened here, once, so the engine only ever walks a flat array.
       workout: selectedWorkout ? resolveWorkout(selectedWorkout) : null,
       boundaries: [{ at: t, distanceMeters: 0 }],
+      lastSeenAt: t,
     };
     sessionRef.current = rec;
     setSession(rec);
@@ -383,6 +420,51 @@ export function useRide() {
       boundaries: [...r.boundaries, { at: Date.now(), distanceMeters: engine.distanceMeters }],
     }));
   }, [engine, update, beeps]);
+
+  /**
+   * On load, look for a session that never reached `finished`. The record
+   * carries its own timestamps, so elapsed time survives the reload exactly;
+   * distance and fix count come back off the persisted record, and the raw log
+   * is re-read from IndexedDB so an export still covers the whole session.
+   */
+  useEffect(() => {
+    void findUnfinishedSession().then((rec) => {
+      if (rec && !sessionRef.current) setResumable(rec);
+    });
+  }, []);
+
+  const resumeSession = useCallback(async () => {
+    const rec = resumable;
+    if (!rec) return;
+    setResumable(null);
+    engine.resetForSession(rec.distanceMeters);
+    memLog.current = await getFixes(rec.id);
+    fixBuffer.current = [];
+    warmupLog.current = [];
+    // Come back paused, and treat everything since the last heartbeat as
+    // paused too: the app was dead for that stretch, so it is not workout time.
+    const t = Date.now();
+    const pauses =
+      rec.status === 'paused'
+        ? rec.pauses
+        : [...rec.pauses, { start: Math.min(rec.lastSeenAt, t), end: null }];
+    const revived: SessionRecord = { ...rec, status: 'paused', pauses, lastSeenAt: t };
+    sessionRef.current = revived;
+    setSession(revived);
+    setSelectedWorkout(null);
+    void putSession(revived);
+    beeps.init();
+    if (!sourceRef.current) startSourceRef.current();
+  }, [resumable, engine, beeps]);
+
+  const discardResumable = useCallback(async () => {
+    const rec = resumable;
+    setResumable(null);
+    if (!rec) return;
+    // Mark it finished rather than deleting: the ride happened, and its raw
+    // log is still worth having.
+    await putSession({ ...rec, status: 'finished', finishedAt: rec.finishedAt ?? Date.now() });
+  }, [resumable]);
 
   const clearSession = useCallback(() => {
     sessionRef.current = null;
@@ -487,6 +569,13 @@ export function useRide() {
     removeWorkout,
     theme,
     toggleTheme,
+    wakeLockEnabled,
+    setWakeLockEnabled,
+    wakeLockState,
+    wakeLockSupported: wakeLock.supported,
+    resumable,
+    resumeSession,
+    discardResumable,
     audio,
     applyAudio,
     previewCue,

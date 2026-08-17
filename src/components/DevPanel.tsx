@@ -294,6 +294,21 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
         </section>
 
         <section className="border-t border-line py-3">
+          <h3 className="mb-1 text-xs font-bold tracking-widest text-muted uppercase">
+            Screen wake lock
+          </h3>
+          <p className="mb-2 text-xs text-muted">
+            Held only while a session is live. State: <span className="font-bold">{ride.wakeLockState}</span>
+            {!ride.wakeLockSupported && ' (not available in this browser)'}
+          </p>
+          <Toggle
+            label={ride.wakeLockEnabled ? 'KEEP SCREEN ON' : 'screen may sleep'}
+            on={ride.wakeLockEnabled}
+            onChange={ride.setWakeLockEnabled}
+          />
+        </section>
+
+        <section className="border-t border-line py-3">
           <h3 className="mb-2 text-xs font-bold tracking-widest text-muted uppercase">
             Suspend the JS loop
           </h3>

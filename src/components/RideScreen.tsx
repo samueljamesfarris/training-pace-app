@@ -149,6 +149,15 @@ export function RideScreen({
           {ride.error}
         </div>
       )}
+      {session && session.status !== 'finished' &&
+        ride.wakeLockEnabled &&
+        ride.wakeLockState !== 'held' && (
+          <div className="mx-3 mb-1 rounded-md bg-hold px-3 py-2 text-sm font-semibold text-hold-ink">
+            {ride.wakeLockState === 'unsupported'
+              ? 'This browser will not keep the screen on. Set auto-lock to Never.'
+              : 'Screen lock is not held — the display may sleep.'}
+          </div>
+        )}
       {ride.persistError && (
         <div className="mx-3 mb-1 rounded-md bg-hold px-3 py-2 text-sm font-semibold text-hold-ink">
           Not saving to storage: {ride.persistError}
