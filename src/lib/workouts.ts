@@ -158,6 +158,32 @@ export const PRESET_WORKOUTS: WorkoutDef[] = [
   },
 ];
 
+/**
+ * Merge adjacent `repeat: 1` blocks into one.
+ *
+ * The builder shows repeat-1 blocks as plain rows with no chrome, so two
+ * consecutive steps look like one list — but if they sit in separate blocks the
+ * reorder arrows can't move a step across a boundary the user can no longer
+ * see, and the button just appears broken. Run this after every structural
+ * edit. Repeat sets are never merged: their grouping is the whole point.
+ *
+ * This is presentation housekeeping only. `resolveWorkout` produces byte-for-
+ * byte the same flat list before and after, which the tests assert.
+ */
+export function coalesceBlocks(blocks: WorkoutBlock[]): WorkoutBlock[] {
+  const out: WorkoutBlock[] = [];
+  for (const b of blocks) {
+    const prev = out[out.length - 1];
+    if (prev && prev.repeat === 1 && b.repeat === 1) {
+      out[out.length - 1] = { ...prev, segments: [...prev.segments, ...b.segments] };
+    } else {
+      out.push(b);
+    }
+  }
+  // A block emptied by deleting its last segment carries no meaning.
+  return out.filter((b) => b.segments.length > 0);
+}
+
 /** A sensible starting point for a brand new workout. */
 export function blankWorkout(): WorkoutDef {
   return {

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatClock } from '../lib/units';
 import {
+  coalesceBlocks,
+  KIND_LABEL,
   KINDS,
   MILE,
   newId,
@@ -12,6 +14,22 @@ import {
   type WorkoutBlock,
   type WorkoutDef,
 } from '../lib/workouts';
+
+/**
+ * A new segment is named after its kind rather than the word "Segment", which
+ * only duplicated the chip below it. `KIND_LABEL` is the one place these names
+ * are spelled, so the chips, the preview and the defaults cannot drift.
+ */
+function newSegment(kind: SegmentKind = 'work'): SegmentDef {
+  return kind === 'work'
+    ? { name: KIND_LABEL[kind], kind, end: { type: 'time', seconds: 60 } }
+    : { name: KIND_LABEL[kind], kind, end: { type: 'time', seconds: 30 } };
+}
+
+/** True when a name is still the untouched default for some kind. */
+function isDefaultName(name: string) {
+  return KINDS.some((k) => KIND_LABEL[k] === name);
+}
 
 const KIND_CHIP: Record<SegmentKind, string> = {
   work: 'bg-work text-work-ink',
@@ -270,18 +288,32 @@ function SegmentRow({
         </SmallButton>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1">
-        {KINDS.map((k) => (
-          <button
-            key={k}
-            onClick={() => onChange({ ...seg, kind: k })}
-            className={`rounded px-2 py-1 text-[11px] font-black tracking-widest uppercase ${
-              seg.kind === k ? KIND_CHIP[k] : 'border border-line text-muted'
-            }`}
-          >
-            {k}
-          </button>
-        ))}
+      <div className="mt-2">
+        <div className="mb-1 text-[11px] font-semibold tracking-widest text-muted uppercase">
+          type
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          {KINDS.map((k) => (
+            <button
+              key={k}
+              onClick={() =>
+                onChange({
+                  ...seg,
+                  kind: k,
+                  // Follow the kind only while the name is still a default.
+                  // A name he typed is his, and changing the type must not
+                  // quietly overwrite it.
+                  name: isDefaultName(seg.name) ? KIND_LABEL[k] : seg.name,
+                })
+              }
+              className={`rounded px-2 py-1 text-[11px] font-black tracking-widest ${
+                seg.kind === k ? KIND_CHIP[k] : 'border border-line text-muted'
+              }`}
+            >
+              {KIND_LABEL[k]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -329,24 +361,49 @@ function SegmentRow({
 
 export function WorkoutBuilder({
   initial,
+  isNew,
   onSave,
   onDelete,
   onCancel,
 }: {
   initial: WorkoutDef;
+  isNew: boolean;
   onSave: (w: WorkoutDef) => void;
   onDelete?: () => void;
   onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState<WorkoutDef>(initial);
+  // Coalesce on load too, not only on edit: the ladder preset is five separate
+  // repeat-1 blocks, which would otherwise render as five step groups whose
+  // arrows can't cross the boundaries between them.
+  const [draft, setDraft] = useState<WorkoutDef>(() => ({
+    ...initial,
+    blocks: coalesceBlocks(initial.blocks),
+  }));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  // Cancel used to throw the draft away without asking. Only worth asking when
+  // there is something to lose, and it reuses Delete's two-tap pattern.
+  const dirty =
+    JSON.stringify(draft) !==
+    JSON.stringify({ ...initial, blocks: coalesceBlocks(initial.blocks) });
 
   const resolved = resolveWorkout(draft);
+  const blockedReason = !draft.name.trim()
+    ? 'Name the workout to save it'
+    : resolved.segments.length === 0
+      ? 'Add a segment to save it'
+      : null;
   const secs = plannedSeconds(resolved.segments);
   const meters = plannedMeters(resolved.segments);
 
+  /** Every structural edit goes through here, so coalescing can't be forgotten. */
+  function editBlocks(fn: (blocks: WorkoutBlock[]) => WorkoutBlock[]) {
+    setDraft((d) => ({ ...d, blocks: coalesceBlocks(fn(d.blocks)) }));
+  }
+
   function editBlock(id: string, fn: (b: WorkoutBlock) => WorkoutBlock) {
-    setDraft((d) => ({ ...d, blocks: d.blocks.map((b) => (b.id === id ? fn(b) : b)) }));
+    editBlocks((blocks) => blocks.map((b) => (b.id === id ? fn(b) : b)));
   }
 
   function moveInArray<T>(arr: T[], i: number, dir: -1 | 1): T[] {
@@ -359,26 +416,34 @@ export function WorkoutBuilder({
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-surface text-ink">
-      <header className="flex items-center gap-2 border-b border-line px-3 py-3">
-        <button
-          onClick={onCancel}
-          className="rounded-lg border border-line px-3 py-2 text-sm font-bold"
-        >
-          Cancel
-        </button>
-        <input
-          value={draft.name}
-          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          placeholder="Workout name"
-          className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 text-base font-black"
-        />
-        <button
-          onClick={() => onSave(draft)}
-          disabled={resolved.segments.length === 0 || !draft.name.trim()}
-          className="rounded-lg bg-go px-4 py-2 text-sm font-black text-go-ink disabled:opacity-40"
-        >
-          Save
-        </button>
+      <header className="border-b border-line px-3 py-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => (dirty && !confirmCancel ? setConfirmCancel(true) : onCancel())}
+            className={`rounded-lg border px-3 py-2 text-sm font-bold ${
+              confirmCancel ? 'border-stop text-stop' : 'border-line'
+            }`}
+          >
+            {confirmCancel ? 'Discard?' : 'Cancel'}
+          </button>
+          <input
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            placeholder="Workout name"
+            className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 text-base font-black"
+          />
+          <button
+            onClick={() => onSave(draft)}
+            disabled={!!blockedReason}
+            className="rounded-lg bg-go px-4 py-2 text-sm font-black text-go-ink disabled:opacity-40"
+          >
+            Save
+          </button>
+        </div>
+        <div className="mt-1 text-xs font-bold text-muted">
+          {/* A disabled button with no explanation is a dead end. */}
+          {blockedReason ?? (isNew ? 'New workout' : 'Editing')}
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-3 pb-8">
@@ -388,111 +453,171 @@ export function WorkoutBuilder({
           {meters > 0 && ` · ${(meters / MILE).toFixed(2)} mi`}
         </p>
 
-        {draft.blocks.map((b, bi) => (
-          <div key={b.id} className="mb-3 rounded-2xl bg-card p-3">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-xs font-black tracking-widest text-muted uppercase">
-                repeat
-              </span>
+        {draft.blocks.map((b, bi) => {
+          // A repeat-1 block is not a group, it is just steps. Rendering it
+          // with a card and a "repeat 1×" header is what made adding a warmup
+          // feel like creating a repeat group of one — and made "+ Segment"
+          // silently drop a step inside the 4× set next to it.
+          const isSet = b.repeat > 1;
+          const blockSegments = resolveWorkout({ ...draft, blocks: [b] }).segments;
+          const blockSecs = plannedSeconds(b.segments);
+          const blockMeters = plannedMeters(b.segments);
+          const summary = [
+            blockSecs != null && blockSecs > 0 ? formatClock(blockSecs * 1000) : null,
+            blockMeters > 0
+              ? blockMeters >= MILE
+                ? `${(blockMeters / MILE).toFixed(2)} mi`
+                : `${Math.round(blockMeters)} m`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(' + ');
+
+          const controls = (
+            <>
               <SmallButton
-                onClick={() => editBlock(b.id, (x) => ({ ...x, repeat: Math.max(1, x.repeat - 1) }))}
-              >
-                −
-              </SmallButton>
-              <span className="w-10 text-center text-xl font-black">{b.repeat}×</span>
-              <SmallButton
-                onClick={() => editBlock(b.id, (x) => ({ ...x, repeat: x.repeat + 1 }))}
-              >
-                +
-              </SmallButton>
-              <span className="flex-1" />
-              <SmallButton
-                onClick={() => setDraft((d) => ({ ...d, blocks: moveInArray(d.blocks, bi, -1) }))}
+                onClick={() => editBlocks((blocks) => moveInArray(blocks, bi, -1))}
                 disabled={bi === 0}
               >
                 ↑
               </SmallButton>
               <SmallButton
-                onClick={() => setDraft((d) => ({ ...d, blocks: moveInArray(d.blocks, bi, 1) }))}
+                onClick={() => editBlocks((blocks) => moveInArray(blocks, bi, 1))}
                 disabled={bi === draft.blocks.length - 1}
               >
                 ↓
               </SmallButton>
               <SmallButton
-                onClick={() =>
-                  setDraft((d) => ({ ...d, blocks: d.blocks.filter((x) => x.id !== b.id) }))
-                }
+                onClick={() => editBlocks((blocks) => blocks.filter((x) => x.id !== b.id))}
                 tone="danger"
-                disabled={draft.blocks.length === 1}
+                // Blocks coalesce, so counting them is meaningless; what must
+                // not reach zero is the number of segments in the workout.
+                disabled={resolved.segments.length - blockSegments.length <= 0}
               >
                 ✕
               </SmallButton>
-            </div>
+            </>
+          );
 
-            {b.segments.map((s, si) => (
-              <SegmentRow
-                key={si}
-                seg={s}
-                canMoveUp={si > 0}
-                canMoveDown={si < b.segments.length - 1}
-                onMove={(dir) =>
-                  editBlock(b.id, (x) => ({ ...x, segments: moveInArray(x.segments, si, dir) }))
-                }
-                onChange={(next) =>
-                  editBlock(b.id, (x) => ({
-                    ...x,
-                    segments: x.segments.map((o, i) => (i === si ? next : o)),
-                  }))
-                }
-                onRemove={() =>
-                  editBlock(b.id, (x) => ({
-                    ...x,
-                    segments: x.segments.filter((_, i) => i !== si),
-                  }))
-                }
-              />
-            ))}
-
-            <SmallButton
-              onClick={() =>
+          const rows = b.segments.map((seg, si) => (
+            <SegmentRow
+              key={si}
+              seg={seg}
+              canMoveUp={si > 0}
+              canMoveDown={si < b.segments.length - 1}
+              onMove={(dir) =>
+                editBlock(b.id, (x) => ({ ...x, segments: moveInArray(x.segments, si, dir) }))
+              }
+              onChange={(next) =>
                 editBlock(b.id, (x) => ({
                   ...x,
-                  segments: [
-                    ...x.segments,
-                    { name: 'Segment', kind: 'work', end: { type: 'time', seconds: 60 } },
-                  ],
+                  segments: x.segments.map((o, i) => (i === si ? next : o)),
                 }))
               }
-            >
-              + Segment
-            </SmallButton>
-          </div>
-        ))}
+              onRemove={() =>
+                editBlock(b.id, (x) => ({
+                  ...x,
+                  segments: x.segments.filter((_, i) => i !== si),
+                }))
+              }
+            />
+          ));
 
-        <button
-          onClick={() =>
-            setDraft((d) => ({
-              ...d,
-              blocks: [
-                ...d.blocks,
+          if (!isSet) {
+            return (
+              <div key={b.id} className="mb-2">
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="text-[11px] font-black tracking-widest text-muted uppercase">
+                    {b.segments.length === 1 ? 'step' : 'steps'}
+                  </span>
+                  <span className="flex-1" />
+                  {/* Quiet: turning steps into a set is deliberate, not a thing
+                      to trip over while editing one. */}
+                  <SmallButton onClick={() => editBlock(b.id, (x) => ({ ...x, repeat: 2 }))}>
+                    Repeat
+                  </SmallButton>
+                  {controls}
+                </div>
+                {rows}
+                <SmallButton
+                  onClick={() =>
+                    editBlock(b.id, (x) => ({ ...x, segments: [...x.segments, newSegment()] }))
+                  }
+                >
+                  + Segment
+                </SmallButton>
+              </div>
+            );
+          }
+
+          return (
+            <div key={b.id} className="mb-3 rounded-2xl border-2 border-line bg-card p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <SmallButton
+                  onClick={() =>
+                    editBlock(b.id, (x) => ({ ...x, repeat: Math.max(1, x.repeat - 1) }))
+                  }
+                >
+                  −
+                </SmallButton>
+                <span className="text-xl font-black">{b.repeat}×</span>
+                <SmallButton onClick={() => editBlock(b.id, (x) => ({ ...x, repeat: x.repeat + 1 }))}>
+                  +
+                </SmallButton>
+                {summary && (
+                  <span className="min-w-0 truncate text-xs font-bold text-muted">· {summary}</span>
+                )}
+                <span className="flex-1" />
+                {controls}
+              </div>
+              {/* The indent and border are the only things saying "these
+                  repeat", so they have to read at a glance. */}
+              <div className="border-l-2 border-line pl-3">{rows}</div>
+              <div className="mt-1 pl-3">
+                <SmallButton
+                  onClick={() =>
+                    editBlock(b.id, (x) => ({ ...x, segments: [...x.segments, newSegment()] }))
+                  }
+                >
+                  + Segment to this set
+                </SmallButton>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="flex gap-2">
+          <button
+            onClick={() =>
+              editBlocks((blocks) => [
+                ...blocks,
+                { id: newId('b'), repeat: 1, segments: [newSegment()] },
+              ])
+            }
+            className="flex-1 rounded-xl border-2 border-dashed border-line py-3 text-sm font-bold text-muted"
+          >
+            + Step
+          </button>
+          <button
+            onClick={() =>
+              editBlocks((blocks) => [
+                ...blocks,
                 {
                   id: newId('b'),
-                  repeat: 1,
-                  segments: [
-                    { name: 'Segment', kind: 'work', end: { type: 'time', seconds: 60 } },
-                  ],
+                  repeat: 2,
+                  segments: [newSegment('work'), newSegment('recovery')],
                 },
-              ],
-            }))
-          }
-          className="w-full rounded-xl border-2 border-dashed border-line py-3 text-sm font-bold text-muted"
-        >
-          + Repeat group
-        </button>
+              ])
+            }
+            className="flex-1 rounded-xl border-2 border-dashed border-line py-3 text-sm font-bold text-muted"
+          >
+            + Repeat set
+          </button>
+        </div>
 
         <div className="mt-4 rounded-2xl bg-card p-3">
           <h3 className="mb-2 text-xs font-black tracking-widest text-muted uppercase">
-            Flattened order
+            Preview
           </h3>
           <div className="flex flex-wrap gap-1">
             {resolved.segments.map((s, i) => (

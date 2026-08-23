@@ -1,4 +1,5 @@
 import {
+  coalesceBlocks,
   copyWorkout,
   MILE,
   plannedMeters,
@@ -124,6 +125,58 @@ console.log('\n--- a workout with no blocks resolves to nothing, not a crash ---
   eq('no segments', resolveWorkout(empty).segments.length, 0);
   eq('no planned time', plannedSeconds(resolveWorkout(empty).segments), 0);
   eq('no planned distance', plannedMeters(resolveWorkout(empty).segments), 0);
+}
+
+console.log('\n--- coalesceBlocks: adjacent steps merge, sets never do ---');
+{
+  const step = (name: string) => ({
+    id: `b-${name}`,
+    repeat: 1,
+    segments: [{ name, kind: 'work' as const, end: { type: 'time' as const, seconds: 60 } }],
+  });
+  const set = (name: string, repeat: number) => ({
+    id: `b-${name}`,
+    repeat,
+    segments: [
+      { name, kind: 'work' as const, end: { type: 'time' as const, seconds: 120 } },
+      { name: `${name} rest`, kind: 'recovery' as const, end: { type: 'time' as const, seconds: 30 } },
+    ],
+  });
+
+  eq('two adjacent steps become one block', coalesceBlocks([step('a'), step('b')]).length, 1);
+  eq('and keep both segments in order',
+     coalesceBlocks([step('a'), step('b')])[0]!.segments.map((x) => x.name).join(','), 'a,b');
+  eq('three adjacent steps collapse too', coalesceBlocks([step('a'), step('b'), step('c')]).length, 1);
+
+  eq('a set is never merged into a step', coalesceBlocks([step('a'), set('s', 4)]).length, 2);
+  eq('nor a step into a set', coalesceBlocks([set('s', 4), step('a')]).length, 2);
+  eq('nor two sets together', coalesceBlocks([set('s', 2), set('t', 3)]).length, 2);
+  eq('a set between steps keeps them apart',
+     coalesceBlocks([step('a'), set('s', 2), step('b')]).length, 3);
+
+  eq('empty blocks are dropped',
+     coalesceBlocks([{ id: 'x', repeat: 1, segments: [] }, step('a')]).length, 1);
+  eq('coalescing nothing is nothing', coalesceBlocks([]).length, 0);
+
+  // The whole point: this must be invisible to the engine.
+  const cases = [
+    [step('a'), step('b'), set('s', 3), step('c'), step('d')],
+    [set('s', 2), step('a'), step('b'), set('t', 4)],
+    ...PRESET_WORKOUTS.map((w) => w.blocks),
+  ];
+  let identical = 0;
+  for (const blocks of cases) {
+    const before = resolveWorkout({ id: 'x', name: 'x', blocks });
+    const after = resolveWorkout({ id: 'x', name: 'x', blocks: coalesceBlocks(blocks) });
+    if (JSON.stringify(before.segments) === JSON.stringify(after.segments)) identical++;
+  }
+  eq('resolveWorkout output is unchanged by coalescing', identical, cases.length);
+
+  // A repeat-1 block's segments are never renamed, so merging cannot alter them.
+  const merged = coalesceBlocks([step('Warmup'), step('Cooldown')]);
+  eq('merged step names stay bare',
+     resolveWorkout({ id: 'x', name: 'x', blocks: merged }).segments.map((x) => x.name).join(','),
+     'Warmup,Cooldown');
 }
 
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURES`);

@@ -7,7 +7,7 @@ Four steps, in order. Each is one Claude Code session, one phone test, one push.
 - [x] Step 1: Inputs and screen edges
 - [x] Step 2: Durability
 - [x] Step 3: Ride screen
-- [ ] Step 4: Builder structure and labels
+- [x] Step 4: Builder structure and labels
 
 **How to run a step.** Save this file in the repo root, then say:
 
@@ -377,6 +377,20 @@ making a copy. On a preset that looks like you are about to wreck the original.
 6. Duplicate a custom workout. A copy appears under Mine, no builder.
 7. Customize a preset. The builder opens on a copy, the header says so, and the
    preset is unchanged in the list.
+
+> All seven verified at the desk. 1: the ladder renders as one step group of
+> nine, no repeat headers. 2: the 4× preset is one bordered set reading
+> `− 4× + · 2:30`. 3: `+ Step` landed outside the set and Preview showed it
+> once — nine chips, the new `WORK 1:00` appearing a single time. 4: two steps
+> that had been separate blocks reordered across the boundary,
+> `FIRST, SECOND` -> `SECOND, FIRST`. 5: dropping the set to 1× removed the
+> card and merged it into the steps as `On, Rest, SECOND, FIRST`. 6: Duplicate
+> saved a copy and stayed on the list. 7: Customize opened a copy titled
+> "New workout" and the preset still read 8 segments afterwards.
+>
+> Coalescing also runs when the builder loads, not only on edit: the ladder is
+> five separate repeat-1 blocks on disk, which would otherwise render as five
+> step groups whose arrows could not cross between them.
 
 ---
 

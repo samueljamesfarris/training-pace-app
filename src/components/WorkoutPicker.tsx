@@ -27,12 +27,14 @@ function WorkoutCard({
   onChoose,
   onEdit,
   onDuplicate,
+  duplicateLabel,
 }: {
   w: WorkoutDef;
   selected: boolean;
   onChoose: () => void;
   onEdit?: () => void;
   onDuplicate: () => void;
+  duplicateLabel: string;
 }) {
   const resolved = resolveWorkout(w);
   const secs = plannedSeconds(resolved.segments);
@@ -79,7 +81,7 @@ function WorkoutCard({
           </button>
         )}
         <button onClick={onDuplicate} className="text-sm font-bold text-muted">
-          Duplicate
+          {duplicateLabel}
         </button>
       </div>
     </div>
@@ -90,6 +92,7 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
   const selected = ride.selectedWorkout;
   const [editing, setEditing] = useState<WorkoutDef | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   // Paused mid-session, picking a workout replaces the one in progress rather
   // than arming the next session.
@@ -105,6 +108,7 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
     return (
       <WorkoutBuilder
         initial={editing}
+        isNew={isNew}
         onCancel={() => setEditing(null)}
         onDelete={
           isNew
@@ -165,6 +169,10 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
           </div>
         </button>
 
+        {note && (
+          <p className="mb-2 rounded-lg bg-raised px-3 py-2 text-sm font-semibold">{note}</p>
+        )}
+
         {ride.customWorkouts.length > 0 && (
           <h3 className="mt-1 mb-2 text-xs font-black tracking-widest text-muted uppercase">
             Mine
@@ -180,9 +188,11 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
               setIsNew(false);
               setEditing(w);
             }}
+            duplicateLabel="Duplicate"
+            // A copy of something he already owns needs no editing session:
+            // save it and let it appear under Mine.
             onDuplicate={() => {
-              setIsNew(true);
-              setEditing(copyWorkout(w));
+              void ride.saveWorkout(copyWorkout(w)).then((saved) => setNote(`Copied to "${saved.name}"`));
             }}
           />
         ))}
@@ -196,7 +206,9 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
             w={w}
             selected={selected?.id === w.id}
             onChoose={() => choose(w)}
-            // Presets stay pristine; "Duplicate" is how you make one yours.
+            // Presets stay pristine, so this opens the builder on a copy —
+            // "Duplicate" made it look like the original was about to be wrecked.
+            duplicateLabel="Customize"
             onDuplicate={() => {
               setIsNew(true);
               setEditing(copyWorkout(w));
