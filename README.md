@@ -26,15 +26,15 @@ yours.
 Night is the default, since most sessions start before sunrise: near-black
 ground, light type, and bright button fills with dark ink. The NIGHT/DAY button
 in the header switches to the daylight palette for sunlit runs, and the choice
-persists. Colours come from tokens defined in `src/index.css`; components never
-name a raw palette colour, so both themes stay consistent by construction.
+persists. Colors come from tokens defined in `src/index.css`; components never
+name a raw palette color, so both themes stay consistent by construction.
 
 ### Ride screen hierarchy
 
 With a workout loaded, the segment countdown is the hero — that is the number
 driving the session, and where the audio cues will attach:
 
-1. Segment countdown, labelled with the phase and its position (`WORK · On 2 · 3/8`)
+1. Segment countdown, labeled with the phase and its position (`WORK · On 2 · 3/8`)
 2. On deck: the next segment and its length
 3. Pace in min/mile, and total elapsed
 4. Speed, average pace, distance
@@ -48,7 +48,7 @@ the reload-resume prompt.
 Not yet built (later steps): spoken cues on top of the beeps, target paces and
 tolerance bands, history and CSV export.
 
-### Reliability behaviours
+### Reliability behaviors
 
 - **Wake lock** is held only while a session is live, and re-acquired on every
   return to visible — iOS drops it on backgrounding and never gives it back.

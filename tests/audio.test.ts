@@ -101,11 +101,11 @@ console.log('\n--- the boundary tone must survive the reschedule it triggers ---
 
   const countdown = created[0]!;
   const boundary = created[1]!;
-  ok('the already-sounding boundary tone is NOT cancelled', !boundary.stoppedEarly);
-  ok('the already-passed countdown is NOT cancelled', !countdown.stoppedEarly);
+  ok('the already-sounding boundary tone is NOT canceled', !boundary.stoppedEarly);
+  ok('the already-passed countdown is NOT canceled', !countdown.stoppedEarly);
 }
 
-console.log('\n--- but genuinely future cues still get cancelled on a pause ---');
+console.log('\n--- but genuinely future cues still get canceled on a pause ---');
 {
   const e = new BeepEngine();
   e.init();
@@ -116,7 +116,7 @@ console.log('\n--- but genuinely future cues still get cancelled on a pause ---'
   e.scheduleAt('boundary', now + 15000);
   ctx.currentTime = 0.5; // nothing has sounded yet
   e.cancelPending();
-  ok('all pending cues cancelled', created.every((c) => c.stoppedEarly),
+  ok('all pending cues canceled', created.every((c) => c.stoppedEarly),
      `${created.filter((c) => c.stoppedEarly).length}/${created.length}`);
 }
 

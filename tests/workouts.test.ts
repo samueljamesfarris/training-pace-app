@@ -90,7 +90,7 @@ console.log('\n--- plannedMeters counts distance segments only ---');
     { name: 'c', kind: 'work', end: { type: 'distance', meters: 400 } },
   ];
   eq('timed segments contribute nothing', plannedMeters(mixed), 1200);
-  eq('an all-timed workout measures zero metres', plannedMeters([mixed[1]!]), 0);
+  eq('an all-timed workout measures zero meters', plannedMeters([mixed[1]!]), 0);
 
   const miles = resolveWorkout(PRESET_WORKOUTS.find((w) => w.id === 'tempo-2-3-1')!).segments;
   eq('tempo totals six miles', Math.round(plannedMeters(miles)), Math.round(6 * MILE));

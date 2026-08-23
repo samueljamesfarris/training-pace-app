@@ -122,7 +122,7 @@ export class BeepEngine {
     return true;
   }
 
-  private tone(startAt: number, spec: ToneSpec, gainOverride?: number, cancellable = true) {
+  private tone(startAt: number, spec: ToneSpec, gainOverride?: number, cancelable = true) {
     if (!this.ctx || !this.master) return;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -147,9 +147,9 @@ export class BeepEngine {
     gain.connect(this.master);
     osc.start(t);
     osc.stop(t + spec.duration + 0.02);
-    // Only future, scheduled cues are cancellable. A cue fired *now* is a fact
+    // Only future, scheduled cues are cancelable. A cue fired *now* is a fact
     // about the present; a later reschedule must not silence it mid-beep.
-    if (cancellable) {
+    if (cancelable) {
       const entry = { osc, startAt: t };
       this.pending.push(entry);
       osc.onended = () => {
@@ -193,7 +193,7 @@ export class BeepEngine {
    *
    * Crucially, a cue that has *already started* is left alone. Segments
    * re-schedule the instant they advance, which is the same instant the 1.5s
-   * boundary tone begins; cancelling indiscriminately clipped it to a click
+   * boundary tone begins; canceling indiscriminately clipped it to a click
    * every single time.
    */
   cancelPending() {

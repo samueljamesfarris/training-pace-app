@@ -105,7 +105,7 @@ function TimeInput({
   }
 
   /** On blur, empty commits 0 and seconds settle inside 0-59. */
-  function normalise() {
+  function normalize() {
     const total = commit(minText, secText);
     setMinText(String(Math.floor(total / 60)));
     setSecText(padSeconds(total % 60));
@@ -122,7 +122,7 @@ function TimeInput({
         value={minText}
         aria-label="minutes"
         onFocus={(e) => e.target.select()}
-        onBlur={normalise}
+        onBlur={normalize}
         onChange={(e) => {
           setMinText(e.target.value);
           commit(e.target.value, secText);
@@ -141,7 +141,7 @@ function TimeInput({
         value={secText}
         aria-label="seconds"
         onFocus={(e) => e.target.select()}
-        onBlur={normalise}
+        onBlur={normalize}
         onChange={(e) => {
           setSecText(e.target.value);
           commit(minText, e.target.value);
@@ -189,7 +189,7 @@ function DistanceInput({
     return m;
   }
 
-  function normalise() {
+  function normalize() {
     const n = Math.max(0, Number(text) || 0);
     const m = unit === 'mi' ? n * MILE : n;
     // Compare what is *shown*, so tabbing through a field displaying 805 m
@@ -203,7 +203,7 @@ function DistanceInput({
     }
   }
 
-  /** The dropdown re-expresses the same distance. The stored metres never move. */
+  /** The dropdown re-expresses the same distance. The stored meters never move. */
   function changeUnit(next: DistanceUnit) {
     setUnit(next);
     setText(showDistance(meters, next));
@@ -219,7 +219,7 @@ function DistanceInput({
         value={text}
         aria-label="distance"
         onFocus={(e) => e.target.select()}
-        onBlur={normalise}
+        onBlur={normalize}
         onChange={(e) => {
           setText(e.target.value);
           commit(e.target.value, unit);

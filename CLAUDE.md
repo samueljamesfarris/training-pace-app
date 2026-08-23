@@ -63,7 +63,7 @@ These were each found by a bug on a real ride. Don't undo them casually.
   in practice is most of the time the phone is still. The Haversine fallback
   measures over the longest baseline available and only believes a displacement
   larger than the fixes' own accuracy.
-- **A cue that has already started is never cancelled.** Segments reschedule the
+- **A cue that has already started is never canceled.** Segments reschedule the
   instant they advance, which is the same instant the boundary tone begins.
 - **A fresh `AudioContext` has `currentTime === 0`**, so envelope maths must not
   compute negative times.
@@ -74,8 +74,8 @@ These were each found by a bug on a real ride. Don't undo them casually.
 
 ## Conventions
 
-- **Colours come from tokens** in `src/index.css` (`bg-surface`, `text-ink`,
-  `bg-go`, …). Never name a raw Tailwind palette colour in a component, or the
+- **Colors come from tokens** in `src/index.css` (`bg-surface`, `text-ink`,
+  `bg-go`, …). Never name a raw Tailwind palette color in a component, or the
   night and day themes drift apart.
 - **No TypeScript parameter properties** (`constructor(private x)`). The tests
   run under Node's strip-only type stripping, which rejects them.
@@ -122,7 +122,7 @@ Open, roughly in priority order:
 - Spoken cues layered on the beeps (spec step 4's second half)
 - Target paces and tolerance bands, plus the off-target warning
 - History, summary, CSV export (step 7)
-- Kilometres — all pace maths and displays currently assume miles
+- Kilometers — all pace maths and displays currently assume miles
 - A real settings screen; audio and wake-lock toggles currently live in the dev
   panel and are not persisted across launches
 - Before sharing widely: hide the DEV button, add onboarding, workout share-links

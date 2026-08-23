@@ -10,7 +10,7 @@ import type { SessionRecord } from '../lib/types';
 import { formatClock, formatCountdown, metersToMiles } from '../lib/units';
 import { KIND_LABEL, MILE, type SegmentDef, type SegmentKind } from '../lib/workouts';
 
-/** Colour is always paired with the word itself, never carrying it alone. */
+/** Color is always paired with the word itself, never carrying it alone. */
 const KIND_STYLE: Record<SegmentKind, string> = {
   work: 'bg-work text-work-ink',
   recovery: 'bg-recovery text-recovery-ink',
@@ -50,23 +50,23 @@ export function SegmentHero({
   // Timed segments count down in m:ss; distance segments count down the
   // distance left, which simply stops moving during a GPS dropout.
   //
-  // Under a mile, count metres: 0.50 -> 0.49 moves the last digit once every
-  // 16 metres, which on an 800 rep reads as a number that isn't working. The
+  // Under a mile, count meters: 0.50 -> 0.49 moves the last digit once every
+  // 16 meters, which on an 800 rep reads as a number that isn't working. The
   // switch is on what's left, not the segment length, so a mile rep changes
   // units as it closes.
-  const metresLeft = Math.max(0, left);
-  const showMetres = seg.end.type === 'distance' && metresLeft < MILE;
+  const metersLeft = Math.max(0, left);
+  const showMeters = seg.end.type === 'distance' && metersLeft < MILE;
   const value =
     seg.end.type === 'time'
       ? over
         ? `+${formatClock(-left)}`
         : formatCountdown(left)
-      : showMetres
-        ? String(Math.round(metresLeft))
+      : showMeters
+        ? String(Math.round(metersLeft))
         : `${Math.max(0, metersToMiles(left)).toFixed(2)}`;
 
   const unit =
-    seg.end.type === 'time' ? 'remaining' : showMetres ? 'metres to go' : 'miles to go';
+    seg.end.type === 'time' ? 'remaining' : showMeters ? 'meters to go' : 'miles to go';
   const urgent = seg.end.type === 'time' && !over && left <= 10_000;
 
   return (

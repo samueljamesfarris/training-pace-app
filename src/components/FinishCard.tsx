@@ -40,7 +40,7 @@ export function FinishCard({ ride }: { ride: Ride }) {
         setNote(`Shared ${fixes.length} raw fixes.`);
         return;
       } catch (e) {
-        // A cancelled share is not a failure; anything else falls through to
+        // A canceled share is not a failure; anything else falls through to
         // the download rather than leaving him with no way to get the log off.
         if ((e as { name?: string }).name === 'AbortError') return;
       }
