@@ -44,6 +44,8 @@ being correct and dull over clever.
   from the same boundary instant the countdown displays.
 - `src/lib/speech.ts` — spoken cues layered on the beeps. Best-effort by
   design: iOS drops speech silently, so nothing may depend on it.
+- `src/lib/history.ts` — session summaries, CSV and text export. Pure, so the
+  export formats are testable without a DOM.
 - `src/lib/offTarget.ts` — pace against a segment's goal. Pure and stateful:
   five continuous seconds outside the band before it speaks, twenty between
   warnings, and a direction change restarts the hold.
@@ -72,6 +74,10 @@ These were each found by a bug on a real ride. Don't undo them casually.
   instant they advance, which is the same instant the boundary tone begins.
 - **A fresh `AudioContext` has `currentTime === 0`**, so envelope maths must not
   compute negative times.
+- **`sanePaceSecPerMile` is the one definition of a pace worth stating.** If
+  the hero shows `--:--`, no split table, CSV column, goal delta or spoken cue
+  may state one either — a segment reading `--:--` once grew a delta of
+  +17269s beside it.
 - **Countdowns round up, stopwatches truncate**, or the two clocks read a second
   apart. Spoken splits truncate too, or the voice says "29 seconds" beside a
   pill reading 0:28.
@@ -125,7 +131,6 @@ Built: steps 1–6 of the spec's build order, plus beeps. Verified against two
 real rides.
 
 Open, roughly in priority order:
-- History, summary, CSV export (step 7)
 - Kilometers — all pace maths and displays currently assume miles
 - A real settings screen; audio and wake-lock toggles currently live in the dev
   panel and are not persisted across launches

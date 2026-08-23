@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DevPanel } from './components/DevPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { History } from './components/History';
 import { FinishCard } from './components/FinishCard';
 import { ResumePrompt } from './components/ResumePrompt';
 import { RideScreen } from './components/RideScreen';
@@ -20,6 +21,7 @@ function AppContents() {
   const ride = useRide();
   const [devOpen, setDevOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);
 
   useEffect(() => {
@@ -50,10 +52,12 @@ function AppContents() {
         ride={ride}
         onOpenDev={() => setDevOpen(true)}
         onOpenPicker={() => setPickerOpen(true)}
+        onOpenHistory={() => setHistoryOpen(true)}
       />
-      <FinishCard ride={ride} />
+      <FinishCard ride={ride} onOpenHistory={() => setHistoryOpen(true)} />
       {pickerOpen && <WorkoutPicker ride={ride} onClose={() => setPickerOpen(false)} />}
       {devOpen && <DevPanel ride={ride} onClose={() => setDevOpen(false)} />}
+      {historyOpen && <History onClose={() => setHistoryOpen(false)} />}
       <ResumePrompt ride={ride} />
 
       {/* An update is never applied mid-workout; while running this is a note,

@@ -130,10 +130,12 @@ export function RideScreen({
   ride,
   onOpenDev,
   onOpenPicker,
+  onOpenHistory,
 }: {
   ride: Ride;
   onOpenDev: () => void;
   onOpenPicker: () => void;
+  onOpenHistory: () => void;
 }) {
   const { gps, session, elapsed } = ride;
   const [finishArmed, setFinishArmed] = useState(false);
@@ -315,6 +317,14 @@ export function RideScreen({
       <footer className="p-3">
         {!session && (
           <>
+            <div className="mb-2 flex justify-end">
+              <button
+                onClick={onOpenHistory}
+                className="rounded-lg px-3 py-2 text-sm font-bold text-muted underline-offset-4"
+              >
+                History
+              </button>
+            </div>
             <button
               onClick={onOpenPicker}
               className="mb-2 flex w-full items-center justify-between rounded-xl border-2 border-line px-4 py-3 text-left active:bg-raised"

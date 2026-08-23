@@ -75,6 +75,20 @@ export function formatMiles(meters: number): string {
   return metersToMiles(meters).toFixed(2);
 }
 
+/**
+ * Pace in seconds per mile, or null when the numbers don't support one.
+ *
+ * The single definition of "a pace we are willing to state". If the hero
+ * refuses to show it as `--:--`, then a split table, a CSV column, a delta
+ * against a goal, and the voice must all refuse too — otherwise a segment
+ * reading `--:--` sprouts a delta of +17269s beside it.
+ */
+export function sanePaceSecPerMile(meters: number, ms: number): number | null {
+  const mph = averageMph(meters, ms);
+  if (mph == null || mph < MIN_SANE_MPH || mph > MAX_SANE_MPH) return null;
+  return 3600 / mph;
+}
+
 /** Average speed in mph over a distance and a running duration. */
 export function averageMph(meters: number, ms: number): number | null {
   if (ms <= 0 || meters <= 0) return null;

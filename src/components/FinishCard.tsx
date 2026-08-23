@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { completedSegments } from '../lib/segments';
 import { elapsedMs } from '../lib/types';
-import { averageMph, formatClock, formatMiles, formatPace, formatSpeed } from '../lib/units';
+import {
+  averageMph,
+  formatClock,
+  formatMiles,
+  formatPace,
+  formatSpeed,
+  sanePaceSecPerMile,
+} from '../lib/units';
 import type { Ride } from '../lib/useRide';
 
 /**
@@ -9,7 +16,13 @@ import type { Ride } from '../lib/useRide';
  * step 7; what matters now is getting the raw log off the phone so real rides
  * can be replayed against the smoothing.
  */
-export function FinishCard({ ride }: { ride: Ride }) {
+export function FinishCard({
+  ride,
+  onOpenHistory,
+}: {
+  ride: Ride;
+  onOpenHistory: () => void;
+}) {
   const { session } = ride;
   const [note, setNote] = useState<string | null>(null);
   if (!session || session.status !== 'finished') return null;
@@ -24,9 +37,10 @@ export function FinishCard({ ride }: { ride: Ride }) {
   function deltaFor(row: { index: number; distanceMeters: number; durationMs: number }) {
     const target = targets[row.index]?.targetPaceSecPerMile;
     if (target == null) return '—';
-    const mph = averageMph(row.distanceMeters, row.durationMs);
-    if (mph == null) return '—';
-    const delta = Math.round(3600 / mph - target);
+    // No delta from a pace we won't show: `--:--` must not sprout a number.
+    const paceSec = sanePaceSecPerMile(row.distanceMeters, row.durationMs);
+    if (paceSec == null) return '—';
+    const delta = Math.round(paceSec - target);
     if (delta === 0) return 'even';
     return `${delta > 0 ? '+' : ''}${delta}s`;
   }
@@ -135,6 +149,12 @@ export function FinishCard({ ride }: { ride: Ride }) {
           className="h-[64px] rounded-2xl bg-next text-lg font-bold text-next-ink"
         >
           Export raw GPS log (JSON)
+        </button>
+        <button
+          onClick={onOpenHistory}
+          className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
+        >
+          History &amp; export
         </button>
         <button
           onClick={ride.clearSession}

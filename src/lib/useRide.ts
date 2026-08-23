@@ -42,17 +42,11 @@ import {
   currentSegment,
 } from './segments';
 import { elapsedMs, wallClockAfter, type RawFix, type SessionRecord } from './types';
-import { averageMph, MAX_SANE_MPH, metersToMiles, MIN_SANE_MPH } from './units';
+import { metersToMiles, sanePaceSecPerMile } from './units';
 
-/**
- * Pace to speak, or null. Applies the same sanity range the display uses: the
- * screen refuses to render a nonsense pace as `--:--`, and the voice must not
- * announce one either.
- */
+/** Pace to speak, or nothing — the same gate the display and the CSV use. */
 function spokenPaceFor(meters: number, ms: number): string | null {
-  const mph = averageMph(meters, ms);
-  if (mph == null || mph < MIN_SANE_MPH || mph > MAX_SANE_MPH) return null;
-  return speakablePace(3600 / mph);
+  return speakablePace(sanePaceSecPerMile(meters, ms));
 }
 import { PRESET_WORKOUTS, resolveWorkout, type WorkoutDef } from './workouts';
 import { applyTheme, loadTheme, type Theme } from './theme';
