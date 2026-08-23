@@ -26,6 +26,22 @@ function AppContents() {
     registerServiceWorker(() => setUpdateReady(true));
   }, []);
 
+  /*
+   * Belt and braces for rotation on iOS. The shell is position:fixed so a stray
+   * scroll offset shouldn't be able to hide it, but the failure this replaces
+   * left the controls unreachable until the app was restarted, and that is not
+   * a thing to be clever about. Costs nothing when there is nothing to reset.
+   */
+  useEffect(() => {
+    const reset = () => window.scrollTo(0, 0);
+    window.addEventListener('orientationchange', reset);
+    window.addEventListener('resize', reset);
+    return () => {
+      window.removeEventListener('orientationchange', reset);
+      window.removeEventListener('resize', reset);
+    };
+  }, []);
+
   const running = ride.session?.status === 'running';
 
   return (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ACCURACY_GATE_M } from '../lib/gpsEngine';
-import { currentIndex } from '../lib/segments';
+import { completedSegments, currentIndex } from '../lib/segments';
 import { SegmentHero } from './SegmentHero';
 import {
   averageMph,
@@ -42,6 +42,14 @@ function Stat({
     </div>
   );
 }
+
+/**
+ * Header controls sit in the strip nearest the island and were ~24px tall,
+ * under the 44px iOS minimum. The hit area is padded rather than the label
+ * inflated, so the row still reads as small print.
+ */
+const HEADER_BUTTON =
+  'inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border px-2 text-xs font-bold';
 
 function GpsChip({ ride }: { ride: Ride }) {
   const { gps, gpsActive, sourceKind, now } = ride;
@@ -92,12 +100,30 @@ export function RideScreen({
 }) {
   const { gps, session, elapsed } = ride;
   const [finishArmed, setFinishArmed] = useState(false);
+  const [armSecondsLeft, setArmSecondsLeft] = useState(0);
+  const [startArmed, setStartArmed] = useState(false);
 
-  // A mis-tap must not end the session, so Finish arms for four seconds.
+  // Without a usable fix the first segment's distance starts from a position
+  // that isn't known yet, so START asks once. With a fix it stays one tap, and
+  // it never hard-blocks: starting cold on a treadmill is legitimate.
+  useEffect(() => {
+    if (!startArmed) return;
+    const id = setTimeout(() => setStartArmed(false), 4000);
+    return () => clearTimeout(id);
+  }, [startArmed]);
+
+  // A mis-tap must not end the session, so Finish arms for four seconds. The
+  // window is shown, because a silent disarm turns a late second tap into a
+  // re-arm and it looks like the button simply didn't work.
   useEffect(() => {
     if (!finishArmed) return;
+    setArmSecondsLeft(4);
+    const tick = setInterval(() => setArmSecondsLeft((n) => Math.max(0, n - 1)), 1000);
     const id = setTimeout(() => setFinishArmed(false), 4000);
-    return () => clearTimeout(id);
+    return () => {
+      clearTimeout(id);
+      clearInterval(tick);
+    };
   }, [finishArmed]);
 
   const mph = gps.displayMps != null ? mpsToMph(gps.displayMps) : null;
@@ -106,6 +132,14 @@ export function RideScreen({
   const paused = session?.status === 'paused';
   const dim = gps.stale ? 'opacity-40' : '';
   const workout = session?.workout ?? null;
+  const sessionLive = !!session && session.status !== 'finished';
+  // The most recently *closed* lap; the open one is still running.
+  const lastLap =
+    session && !workout
+      ? completedSegments(session, ride.now, gps.distanceMeters)
+          .filter((l) => !l.open)
+          .at(-1)
+      : undefined;
   const atLastSegment =
     !!workout && !!session && currentIndex(session) >= workout.segments.length - 1;
 
@@ -122,7 +156,7 @@ export function RideScreen({
           <button
             onClick={() => ride.applyAudio({ ...ride.audio, enabled: !ride.audio.enabled })}
             aria-label="Toggle audio cues"
-            className={`rounded-md border px-2 py-1 text-xs font-bold ${
+            className={`${HEADER_BUTTON} ${
               ride.audio.enabled ? 'border-line text-muted' : 'border-stop text-stop'
             }`}
           >
@@ -131,16 +165,15 @@ export function RideScreen({
           <button
             onClick={ride.toggleTheme}
             aria-label="Toggle night mode"
-            className="rounded-md border border-line px-2 py-1 text-xs font-bold text-muted"
+            className={`${HEADER_BUTTON} border-line text-muted`}
           >
             {ride.theme === 'dark' ? 'NIGHT' : 'DAY'}
           </button>
-          <button
-            onClick={onOpenDev}
-            className="rounded-md border border-line px-2 py-1 text-xs font-bold text-muted"
-          >
-            DEV
-          </button>
+          {!sessionLive && (
+            <button onClick={onOpenDev} className={`${HEADER_BUTTON} border-line text-muted`}>
+              DEV
+            </button>
+          )}
         </div>
       </header>
 
@@ -169,7 +202,13 @@ export function RideScreen({
           and the controls stay put and reachable. */}
       <main className="grid min-h-0 flex-1 grid-cols-1 content-center gap-2 overflow-y-auto px-3 landscape:grid-cols-2 landscape:items-center">
         {workout && session ? (
-          <SegmentHero session={session} now={ride.now} distanceMeters={gps.distanceMeters} />
+          <SegmentHero
+            session={session}
+            now={ride.now}
+            distanceMeters={gps.distanceMeters}
+            stale={gps.stale}
+            acquiring={gps.acquiring}
+          />
         ) : (
           <section className="flex flex-col items-center justify-center">
             <div
@@ -180,6 +219,18 @@ export function RideScreen({
             <div className="text-sm font-bold tracking-widest text-muted uppercase">
               min / mile
             </div>
+            {session && (
+              <div className="mt-2 rounded-full bg-raised px-4 py-1 text-sm font-bold">
+                {lastLap ? (
+                  <>
+                    <span className="text-muted">LAP {lastLap.index + 1}</span>{' '}
+                    {formatClock(lastLap.durationMs)} · {formatMiles(lastLap.distanceMeters)} mi
+                  </>
+                ) : (
+                  <span className="text-muted">0 LAPS</span>
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -236,10 +287,19 @@ export function RideScreen({
             </button>
             <div className="flex gap-2">
               <button
-                onClick={ride.start}
-                className="h-[76px] flex-[2] rounded-2xl bg-go text-2xl font-black tracking-wide text-go-ink active:opacity-80"
+                onClick={() => {
+                  if (ride.hasUsableFix || startArmed) {
+                    setStartArmed(false);
+                    ride.start();
+                  } else {
+                    setStartArmed(true);
+                  }
+                }}
+                className={`h-[76px] flex-[2] rounded-2xl text-2xl font-black tracking-wide active:opacity-80 ${
+                  startArmed ? 'bg-hold text-hold-ink' : 'bg-go text-go-ink'
+                }`}
               >
-                START
+                {startArmed ? 'NO GPS — START?' : 'START'}
               </button>
               <button
                 onClick={ride.gpsActive ? ride.stopSource : ride.startSource}
@@ -261,6 +321,14 @@ export function RideScreen({
             >
               {running ? 'PAUSE' : 'RESUME'}
             </button>
+            {paused && (
+              <button
+                onClick={onOpenPicker}
+                className="h-[76px] flex-1 rounded-2xl border-2 border-line text-base font-bold text-ink active:bg-raised"
+              >
+                WORKOUT
+              </button>
+            )}
             <button
               onClick={ride.nextSegment}
               disabled={atLastSegment}
@@ -283,7 +351,7 @@ export function RideScreen({
                   : 'border-2 border-line text-ink active:bg-raised'
               }`}
             >
-              {finishArmed ? 'CONFIRM' : 'FINISH'}
+              {finishArmed ? `CONFIRM ${armSecondsLeft}` : 'FINISH'}
             </button>
           </div>
         )}

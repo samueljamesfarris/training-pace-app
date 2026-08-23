@@ -91,8 +91,13 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
   const [editing, setEditing] = useState<WorkoutDef | null>(null);
   const [isNew, setIsNew] = useState(false);
 
+  // Paused mid-session, picking a workout replaces the one in progress rather
+  // than arming the next session.
+  const swapping = ride.session != null && ride.session.status === 'paused';
+
   function choose(w: WorkoutDef | null) {
     ride.setSelectedWorkout(w);
+    if (swapping) ride.swapWorkout(w);
     onClose();
   }
 
@@ -120,7 +125,14 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-surface text-ink">
       <header className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="text-lg font-black">Workout</h2>
+        <h2 className="text-lg font-black">
+          {swapping ? 'Change workout' : 'Workout'}
+          {swapping && (
+            <span className="block text-xs font-bold text-muted">
+              Replaces the paused workout. Time and distance are kept.
+            </span>
+          )}
+        </h2>
         <div className="flex gap-2">
           <button
             onClick={() => {

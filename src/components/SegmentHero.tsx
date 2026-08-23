@@ -30,10 +30,14 @@ export function SegmentHero({
   session,
   now,
   distanceMeters,
+  stale,
+  acquiring,
 }: {
   session: SessionRecord;
   now: number;
   distanceMeters: number;
+  stale: boolean;
+  acquiring: boolean;
 }) {
   const seg = currentSegment(session);
   const next = onDeckSegment(session);
@@ -45,14 +49,24 @@ export function SegmentHero({
 
   // Timed segments count down in m:ss; distance segments count down the
   // distance left, which simply stops moving during a GPS dropout.
+  //
+  // Under a mile, count metres: 0.50 -> 0.49 moves the last digit once every
+  // 16 metres, which on an 800 rep reads as a number that isn't working. The
+  // switch is on what's left, not the segment length, so a mile rep changes
+  // units as it closes.
+  const metresLeft = Math.max(0, left);
+  const showMetres = seg.end.type === 'distance' && metresLeft < MILE;
   const value =
     seg.end.type === 'time'
       ? over
         ? `+${formatClock(-left)}`
         : formatCountdown(left)
-      : `${Math.max(0, metersToMiles(left)).toFixed(2)}`;
+      : showMetres
+        ? String(Math.round(metresLeft))
+        : `${Math.max(0, metersToMiles(left)).toFixed(2)}`;
 
-  const unit = seg.end.type === 'time' ? 'remaining' : 'miles to go';
+  const unit =
+    seg.end.type === 'time' ? 'remaining' : showMetres ? 'metres to go' : 'miles to go';
   const urgent = seg.end.type === 'time' && !over && left <= 10_000;
 
   return (
@@ -80,6 +94,14 @@ export function SegmentHero({
       <div className="text-sm font-bold tracking-widest text-muted uppercase">
         {complete ? 'workout complete — tap finish' : over ? 'over — tap next' : unit}
       </div>
+
+      {/* Dimming alone reads as a rendering fault in direct sun, and the chip
+          explaining it is away in the corner. Same wording as the chip. */}
+      {stale && !acquiring && (
+        <div className="mt-2 rounded bg-hold px-3 py-1 text-xs font-black tracking-widest text-hold-ink uppercase">
+          GPS lost — numbers frozen
+        </div>
+      )}
 
       <div className="mt-2 rounded-full bg-raised px-4 py-1 text-sm font-bold">
         {next ? (

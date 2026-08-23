@@ -18,18 +18,38 @@ export function FinishCard({ ride }: { ride: Ride }) {
   const avg = averageMph(ride.gps.distanceMeters, total);
   const segments = completedSegments(session, ride.now, ride.gps.distanceMeters);
 
-  async function download() {
+  /**
+   * A download on iOS lands in Files and then has to be found again. The share
+   * sheet puts the log straight into Messages, Mail or iCloud from the finish
+   * screen, which is where it actually needs to go. Falls back to the download
+   * wherever sharing a file isn't offered.
+   */
+  async function exportLog() {
     const fixes = await ride.exportFixes();
     if (fixes.length === 0) {
       setNote('No fixes were logged in that session.');
       return;
     }
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(fixes)], { type: 'application/json' }),
-    );
+    const name = `${session!.id}-fixes.json`;
+    const json = JSON.stringify(fixes);
+    const file = new File([json], name, { type: 'application/json' });
+
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: name });
+        setNote(`Shared ${fixes.length} raw fixes.`);
+        return;
+      } catch (e) {
+        // A cancelled share is not a failure; anything else falls through to
+        // the download rather than leaving him with no way to get the log off.
+        if ((e as { name?: string }).name === 'AbortError') return;
+      }
+    }
+
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${session!.id}-fixes.json`;
+    a.download = name;
     a.click();
     URL.revokeObjectURL(url);
     setNote(`Exported ${fixes.length} raw fixes.`);
@@ -94,7 +114,7 @@ export function FinishCard({ ride }: { ride: Ride }) {
 
       <div className="mt-6 flex flex-col gap-2">
         <button
-          onClick={() => void download()}
+          onClick={() => void exportLog()}
           className="h-[64px] rounded-2xl bg-next text-lg font-bold text-next-ink"
         >
           Export raw GPS log (JSON)

@@ -12,7 +12,13 @@ import {
   putSession,
   putWorkout,
 } from './db';
-import { DEFAULT_SMOOTHING_MS, DROPOUT_MS, GpsEngine, type GpsSnapshot } from './gpsEngine';
+import {
+  ACCURACY_GATE_M,
+  DEFAULT_SMOOTHING_MS,
+  DROPOUT_MS,
+  GpsEngine,
+  type GpsSnapshot,
+} from './gpsEngine';
 import {
   DEFAULT_SIM,
   GeoSource,
@@ -332,6 +338,9 @@ export function useRide() {
   const start = useCallback(() => {
     engine.resetForSession();
     beeps.init();
+    // Proof the audio pipeline is alive, at the one moment it can still be
+    // fixed. Respects the mute toggle, since `play` checks it.
+    beeps.play('lap');
     // Carry the warm-up fixes in so the log covers the standstill too.
     memLog.current = [...warmupLog.current];
     fixBuffer.current = [...warmupLog.current];
@@ -479,6 +488,29 @@ export function useRide() {
     void pruneOldFixes();
   }, [resumable]);
 
+  /**
+   * Swap the workout of a session that is already underway.
+   *
+   * Only while paused — never mid-rep — because the boundary list is replaced
+   * wholesale with a single boundary at this instant, so the new workout starts
+   * clean. Elapsed time, distance and the raw log are untouched: they belong to
+   * the session, not to the workout. Picking the wrong workout in the dark
+   * otherwise costs the whole session.
+   */
+  const swapWorkout = useCallback(
+    (w: WorkoutDef | null) => {
+      const rec = sessionRef.current;
+      if (!rec || rec.status !== 'paused') return;
+      beeps.cancelPending();
+      update((r) => ({
+        ...r,
+        workout: w ? resolveWorkout(w) : null,
+        boundaries: [{ at: Date.now(), distanceMeters: engine.distanceMeters }],
+      }));
+    },
+    [engine, update, beeps],
+  );
+
   const clearSession = useCallback(() => {
     sessionRef.current = null;
     setSession(null);
@@ -548,6 +580,14 @@ export function useRide() {
     session?.pauses.length,
   ]);
 
+  /**
+   * A fix arrived recently and was accurate enough to move the odometer. START
+   * asks for confirmation without one, because a distance segment started cold
+   * measures from a position that isn't known yet.
+   */
+  const hasUsableFix =
+    !gps.stale && gps.accuracy != null && gps.accuracy <= ACCURACY_GATE_M;
+
   const elapsed = useMemo(
     () => (session ? elapsedMs(session, now) : 0),
     [session, now],
@@ -558,6 +598,7 @@ export function useRide() {
     gps,
     session,
     elapsed,
+    hasUsableFix,
     gpsActive,
     error,
     persistError,
@@ -576,6 +617,7 @@ export function useRide() {
     stopSource,
     selectedWorkout,
     setSelectedWorkout,
+    swapWorkout,
     customWorkouts,
     presetWorkouts: PRESET_WORKOUTS,
     saveWorkout,

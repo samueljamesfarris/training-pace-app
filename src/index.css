@@ -107,9 +107,9 @@
 }
 
 html,
-body,
-#root {
+body {
   height: 100%;
+  overflow: hidden;
 }
 
 /*
@@ -118,7 +118,20 @@ body,
  * clear of the Dynamic Island and their footers clear of the home indicator.
  * border-box, or the padding would push the app past the viewport.
  */
+/*
+ * The app shell is pinned to the viewport rather than laid out in the document.
+ *
+ * `height: 100%` resolves against the initial containing block, which iOS does
+ * not reliably recompute on rotation: coming back to portrait left the visual
+ * viewport offset with the header scrolled off the top, and locking overflow on
+ * top of that made it unrecoverable — the controls stayed hidden until another
+ * rotation. `position: fixed` with `inset: 0` sizes to the viewport directly
+ * and cannot be scrolled away, which is the property that actually matters.
+ */
 #root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
   box-sizing: border-box;
   /* A few pixels past the bare inset: sitting flush against the island reads as
      crowded on the phone, and its shadow bleeds a little below the safe edge. */
@@ -133,11 +146,7 @@ body,
  * scroll inside themselves. Without this, rotating to landscape and back left
  * the document scrolled down, which pushed the header up under the island.
  */
-html,
-body,
-#root {
-  overflow: hidden;
-}
+
 
 body {
   margin: 0;

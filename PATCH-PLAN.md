@@ -6,7 +6,7 @@ Four steps, in order. Each is one Claude Code session, one phone test, one push.
 
 - [x] Step 1: Inputs and screen edges
 - [x] Step 2: Durability
-- [ ] Step 3: Ride screen
+- [x] Step 3: Ride screen
 - [ ] Step 4: Builder structure and labels
 
 **How to run a step.** Save this file in the repo root, then say:
@@ -277,6 +277,25 @@ An 800 rep counts down in metres and hits zero at the line. START with GPS off
 asks once, then starts. A stale fix is readable without looking at the corner.
 DEV is absent during a running session. The chirp fires at START. Pause, change
 the workout, resume, and confirm elapsed time is still right.
+
+> Verified at the desk: 3a shows `800 / METRES TO GO` on an 800 rep; 3b asks
+> once as `NO GPS — START?` then starts; 3d DEV is absent mid-session; 3e all
+> three header buttons measure 44px; 3f counts `CONFIRM 4` down to 0; 3g the
+> 1318 Hz chirp fires on START after the unlock blip; 3h swapped 6 × 800m in
+> while paused with elapsed held at 0:27; 3i shows `0 LAPS` then
+> `LAP 1 0:10 · 0.00 mi`.
+>
+> **3c is not runtime-verified.** It renders on `stale && !acquiring`, the same
+> predicate as the GPS chip's red badge, but 3d now hides DEV during a session,
+> so a dropout can no longer be injected mid-ride from the UI. Confirm it under
+> real tree cover.
+>
+> Also fixed here, carried over from Step 1: the rotation trap. `height: 100%`
+> resolves against a containing block iOS does not recompute on rotation, and
+> `overflow: hidden` turned the resulting offset into a permanent one — the
+> header stayed hidden until the app was restarted. The shell is now
+> `position: fixed; inset: 0`, which sizes to the viewport and cannot be
+> scrolled away, plus a scroll reset on rotation as insurance.
 
 ---
 
