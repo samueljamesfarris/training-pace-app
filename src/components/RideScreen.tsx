@@ -214,7 +214,7 @@ export function RideScreen({
         </section>
       </main>
 
-      <footer className="p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <footer className="p-3">
         {!session && (
           <>
             <button

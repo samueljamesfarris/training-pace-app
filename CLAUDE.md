@@ -6,6 +6,8 @@ runs carrying it instead. The phone is the entire system — no watch, no sensor
 Full requirements are in `pace-app-spec.md`, which is the source of truth for
 scope. `README.md` tracks what is actually built.
 
+Active work plan: see PATCH-PLAN.md in the repo root.
+
 **Reliability beats features.** A lost session, a stopwatch that drifts after a
 notification, or a screen that sleeps mid-workout makes the app useless. Prefer
 being correct and dull over clever.

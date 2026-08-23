@@ -112,6 +112,18 @@ body,
   height: 100%;
 }
 
+/*
+ * Every panel — picker, builder, dev, resume — is `absolute inset-0` against
+ * the wrapper inside #root, so insetting #root once keeps all of their headers
+ * clear of the Dynamic Island and their footers clear of the home indicator.
+ * border-box, or the padding would push the app past the viewport.
+ */
+#root {
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
 body {
   margin: 0;
   background: var(--surface);

@@ -34,7 +34,7 @@ export default function App() {
       {/* An update is never applied mid-workout; while running this is a note,
           not a button, so a stray thumb can't reload the app under him. */}
       {updateReady && (
-        <div className="absolute inset-x-0 bottom-0 z-30 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="absolute inset-x-0 bottom-0 z-30 p-3">
           <div className="flex items-center gap-3 rounded-xl bg-raised px-4 py-3 shadow-lg">
             <span className="flex-1 text-sm font-bold text-ink">
               {running ? 'New version ready — installs after you finish' : 'New version ready'}
