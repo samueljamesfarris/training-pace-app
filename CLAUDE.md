@@ -25,7 +25,9 @@ being correct and dull over clever.
    a phone that slept through a rest lands on the right segment.
 3. **Never fabricate a reading.** On a GPS dropout the display freezes with a
    stale badge; distance does not bridge the gap. If a value can't be measured
-   honestly, show `--:--`.
+   honestly, show `--:--`. Indoor sessions are the same rule taken to its end:
+   nothing was measured, so miles, pace and speed are absent everywhere —
+   screen, finish card, history, CSV — rather than reported as zero.
 4. **Audio never takes the session down.** Same for IndexedDB — persistence
    failures surface as a banner and the workout continues.
 5. **The service worker never calls `skipWaiting()` on its own.** Swapping
@@ -54,6 +56,9 @@ being correct and dull over clever.
   all emitting the identical fix shape so simulation exercises real code.
 - `src/lib/useRide.ts` — session state machine, persistence, tick, cue
   scheduling, wake lock, resume.
+- `src/lib/mode.ts` — indoor or outdoor, remembered between launches. Indoor is
+  the treadmill: no position source is ever started, and nothing derived from
+  distance is displayed or exported. `isIndoor` in `types.ts` is the one test.
 - `src/lib/db.ts` — IndexedDB. Every call is best-effort and never throws.
 
 ## Hard-won details
@@ -155,6 +160,10 @@ and the reason to be careful before piling more on top.
 
 ### Still open
 
+- Indoor mode is desk-verified only, in a browser at phone size. What a real
+  treadmill session wants on screen — whether the goal pace and the clocks are
+  the right two numbers, and whether tapping NEXT through a distance workout is
+  bearable — is a question only a treadmill answers.
 - Kilometers — all pace math and displays assume miles. **Explicitly deferred**;
   Sam does not want it yet. Keep it as a future option.
 - A real settings screen. Audio, speech, tolerance and wake-lock toggles live in

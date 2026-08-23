@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { deleteSession, getFixes, listSessions } from '../lib/db';
 import { completedSegments } from '../lib/segments';
 import { summarize, sortSessions, toCsv, toTextSummary } from '../lib/history';
-import type { SessionRecord } from '../lib/types';
+import { isIndoor, type SessionRecord } from '../lib/types';
 import { averageMph, formatClock, formatMiles, formatPace, sanePaceSecPerMile } from '../lib/units';
 
 function when(ms: number) {
@@ -55,6 +55,7 @@ function Detail({
   }, [rec.id]);
 
   const s = summarize(rec);
+  const indoor = isIndoor(rec);
   const ceiling = rec.finishedAt ?? rec.lastSeenAt;
   const rows = completedSegments(rec, ceiling, rec.distanceMeters);
   const targets = rec.workout?.segments ?? [];
@@ -69,8 +70,9 @@ function Detail({
           <div className="truncate text-base font-black">{s.workoutName ?? 'Free run'}</div>
           <div className="text-xs text-muted">
             {when(rec.startedAt)}
+            {indoor && ' · indoor'}
             {!s.finished && ' · unfinished'}
-            {rec.source !== 'geo' && ` · ${rec.source}`}
+            {rec.source !== 'geo' && !indoor && ` · ${rec.source}`}
           </div>
         </div>
       </header>
@@ -81,16 +83,26 @@ function Detail({
             <div className="text-3xl font-black">{formatClock(s.totalMs)}</div>
             <div className="text-xs font-bold tracking-widest text-muted uppercase">time</div>
           </div>
-          <div>
-            <div className="text-3xl font-black">{formatMiles(s.distanceMeters)}</div>
-            <div className="text-xs font-bold tracking-widest text-muted uppercase">miles</div>
-          </div>
-          <div>
-            <div className="text-3xl font-black">
-              {formatPace(averageMph(s.distanceMeters, s.totalMs))}
-            </div>
-            <div className="text-xs font-bold tracking-widest text-muted uppercase">avg pace</div>
-          </div>
+          {/* Nothing was measured indoors, so nothing derived from distance is
+              stated — the same rule the finish card and the CSV follow. */}
+          {!indoor && (
+            <>
+              <div>
+                <div className="text-3xl font-black">{formatMiles(s.distanceMeters)}</div>
+                <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                  miles
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-black">
+                  {formatPace(averageMph(s.distanceMeters, s.totalMs))}
+                </div>
+                <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                  avg pace
+                </div>
+              </div>
+            </>
+          )}
           <div>
             <div className="text-3xl font-black">{rows.length}</div>
             <div className="text-xs font-bold tracking-widest text-muted uppercase">
@@ -106,8 +118,8 @@ function Detail({
                 <tr className="text-[11px] tracking-widest text-muted uppercase">
                   <th className="text-left font-bold">segment</th>
                   <th className="text-right font-bold">time</th>
-                  <th className="text-right font-bold">dist</th>
-                  <th className="text-right font-bold">pace</th>
+                  {!indoor && <th className="text-right font-bold">dist</th>}
+                  {!indoor && <th className="text-right font-bold">pace</th>}
                 </tr>
               </thead>
               <tbody>
@@ -120,15 +132,19 @@ function Detail({
                     <tr key={row.index} className="border-t border-line">
                       <td className="py-1 font-bold">{row.name}</td>
                       <td className="py-1 text-right">{formatClock(row.durationMs)}</td>
-                      <td className="py-1 text-right">{formatMiles(row.distanceMeters)}</td>
-                      <td className="py-1 text-right font-bold">
-                        {formatPace(mph)}
-                        {delta != null && (
-                          <span className="ml-1 text-xs font-bold text-muted">
-                            {delta === 0 ? 'even' : `${delta > 0 ? '+' : ''}${delta}s`}
-                          </span>
-                        )}
-                      </td>
+                      {!indoor && (
+                        <td className="py-1 text-right">{formatMiles(row.distanceMeters)}</td>
+                      )}
+                      {!indoor && (
+                        <td className="py-1 text-right font-bold">
+                          {formatPace(mph)}
+                          {delta != null && (
+                            <span className="ml-1 text-xs font-bold text-muted">
+                              {delta === 0 ? 'even' : `${delta > 0 ? '+' : ''}${delta}s`}
+                            </span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -158,7 +174,7 @@ function Detail({
             Export CSV
           </button>
           <button
-            disabled={fixCount === 0}
+            disabled={indoor || fixCount === 0}
             onClick={async () => {
               const fixes = await getFixes(rec.id);
               setNote(
@@ -171,9 +187,11 @@ function Detail({
             }}
             className="h-[56px] rounded-2xl bg-next text-base font-bold text-next-ink disabled:opacity-40"
           >
-            {fixCount === null
-              ? 'Raw GPS log (JSON)'
-              : fixCount === 0
+            {indoor
+              ? 'No GPS log — indoor session'
+              : fixCount === null
+                ? 'Raw GPS log (JSON)'
+                : fixCount === 0
                 ? 'Raw GPS log pruned'
                 : `Raw GPS log (${fixCount} fixes)`}
           </button>
@@ -258,8 +276,17 @@ export function History({ onClose }: { onClose: () => void }) {
                     <span className="shrink-0 text-xs text-muted">{when(rec.startedAt)}</span>
                   </div>
                   <div className="mt-1 text-sm font-bold">
-                    {formatClock(s.totalMs)} · {formatMiles(s.distanceMeters)} mi ·{' '}
-                    {formatPace(averageMph(s.distanceMeters, s.totalMs))}/mi
+                    {s.indoor ? (
+                      <>
+                        {formatClock(s.totalMs)}{' '}
+                        <span className="text-muted">· indoor</span>
+                      </>
+                    ) : (
+                      <>
+                        {formatClock(s.totalMs)} · {formatMiles(s.distanceMeters)} mi ·{' '}
+                        {formatPace(averageMph(s.distanceMeters, s.totalMs))}/mi
+                      </>
+                    )}
                   </div>
                   {!s.finished && (
                     <div className="mt-1 text-xs font-bold text-muted">unfinished</div>

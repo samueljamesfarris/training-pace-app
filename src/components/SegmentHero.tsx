@@ -5,6 +5,7 @@ import {
   onDeckSegment,
   remaining,
   segmentCount,
+  segmentElapsedMs,
 } from '../lib/segments';
 import type { SessionRecord } from '../lib/types';
 import { formatClock, formatCountdown, metersToMiles } from '../lib/units';
@@ -32,6 +33,7 @@ export function SegmentHero({
   distanceMeters,
   stale,
   acquiring,
+  measuring = true,
   band,
 }: {
   session: SessionRecord;
@@ -39,6 +41,13 @@ export function SegmentHero({
   distanceMeters: number;
   stale: boolean;
   acquiring: boolean;
+  /**
+   * False on a treadmill, where no distance is measured. A distance segment
+   * then has no countdown to show — counting one down from a frozen odometer
+   * would be a fabricated reading — so it counts the segment's time up and
+   * says which distance to watch the machine for.
+   */
+  measuring?: boolean;
   /** The target/verdict row, when the segment has a goal pace. */
   band?: React.ReactNode;
 }) {
@@ -46,7 +55,9 @@ export function SegmentHero({
   const next = onDeckSegment(session);
   if (!seg) return null;
 
-  const complete = isWorkoutComplete(session, now, distanceMeters);
+  const unmeasurable = !measuring && seg.end.type === 'distance';
+
+  const complete = !unmeasurable && isWorkoutComplete(session, now, distanceMeters);
   const left = remaining(session, seg, now, distanceMeters);
   const over = left < 0;
 
@@ -59,8 +70,9 @@ export function SegmentHero({
   // units as it closes.
   const metersLeft = Math.max(0, left);
   const showMeters = seg.end.type === 'distance' && metersLeft < MILE;
-  const value =
-    seg.end.type === 'time'
+  const value = unmeasurable
+    ? formatClock(segmentElapsedMs(session, now))
+    : seg.end.type === 'time'
       ? over
         ? `+${formatClock(-left)}`
         : formatCountdown(left)
@@ -68,9 +80,14 @@ export function SegmentHero({
         ? String(Math.round(metersLeft))
         : `${Math.max(0, metersToMiles(left)).toFixed(2)}`;
 
-  const unit =
-    seg.end.type === 'time' ? 'remaining' : showMeters ? 'meters to go' : 'miles to go';
-  const urgent = seg.end.type === 'time' && !over && left <= 10_000;
+  const unit = unmeasurable
+    ? `elapsed · tap next at ${endLabel(seg)}`
+    : seg.end.type === 'time'
+      ? 'remaining'
+      : showMeters
+        ? 'meters to go'
+        : 'miles to go';
+  const urgent = !unmeasurable && seg.end.type === 'time' && !over && left <= 10_000;
 
   return (
     <section className="flex flex-col items-center">
@@ -95,7 +112,7 @@ export function SegmentHero({
       </div>
 
       <div className="text-sm font-bold tracking-widest text-muted uppercase">
-        {complete ? 'workout complete — tap finish' : over ? 'over — tap next' : unit}
+        {complete ? 'workout complete — tap finish' : over && !unmeasurable ? 'over — tap next' : unit}
       </div>
 
       {/* Dimming alone reads as a rendering fault in direct sun, and the chip

@@ -49,6 +49,7 @@ function spokenPaceFor(meters: number, ms: number): string | null {
   return speakablePace(sanePaceSecPerMile(meters, ms));
 }
 import { PRESET_WORKOUTS, resolveWorkout, type WorkoutDef } from './workouts';
+import { loadMode, saveMode, type RideMode } from './mode';
 import { applyTheme, loadTheme, type Theme } from './theme';
 import {
   DEFAULT_SPEECH,
@@ -105,6 +106,8 @@ export function useRide() {
   const [cueEpoch, setCueEpoch] = useState(0);
   const [customWorkouts, setCustomWorkouts] = useState<WorkoutDef[]>([]);
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
+  /** Outdoor or treadmill. Remembered, because it rarely changes day to day. */
+  const [mode, setModeState] = useState<RideMode>(() => loadMode());
   const [wakeLockEnabled, setWakeLockEnabled] = useState(true);
   const [wakeLockState, setWakeLockState] = useState<WakeLockState>('released');
   /** An unfinished session found in storage on load, awaiting resume/discard. */
@@ -132,6 +135,8 @@ export function useRide() {
   /** Fixes captured while warming up, before a session exists. */
   const warmupLog = useRef<RawFix[]>([]);
 
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const audioRef = useRef(audio);
   audioRef.current = audio;
   const gpsRef = useRef(gps);
@@ -194,6 +199,7 @@ export function useRide() {
   const toggleTheme = useCallback(() => {
     setThemeState((t) => (t === 'dark' ? 'light' : 'dark'));
   }, []);
+
 
   useEffect(() => {
     void listWorkouts().then((ws) =>
@@ -277,6 +283,13 @@ export function useRide() {
   }, []);
 
   const startSource = useCallback(() => {
+    // Indoors there is nothing to watch. Refusing here rather than at each call
+    // site is what keeps a treadmill session from ever prompting for location:
+    // the visibility handler and the resume path both come through this.
+    if (modeRef.current === 'indoor') {
+      shouldRun.current = false;
+      return;
+    }
     shouldRun.current = true;
     sourceRef.current?.stop();
     let src: PositionSource;
@@ -291,17 +304,43 @@ export function useRide() {
   startSourceRef.current = startSource;
 
   /**
+   * Switching to indoor stops the watch there and then: the point of the mode
+   * is that the treadmill session never touches the GPS, and leaving a live
+   * watch running would keep draining the battery for readings nobody shows.
+   * It can only be changed between sessions, so no live session is disturbed.
+   */
+  const setMode = useCallback(
+    (next: RideMode) => {
+      modeRef.current = next;
+      setModeState(next);
+      saveMode(next);
+      if (next === 'indoor') {
+        stopSource();
+        engine.resetForSession();
+        setGps(engine.snapshot(Date.now()));
+        setError(null);
+      }
+    },
+    [engine, stopSource],
+  );
+
+  /**
    * Picking a source is itself a user gesture, so it both swaps and starts the
    * watch — which is also the moment iOS will accept a permission request.
    */
   const setSourceKind = useCallback(
     (kind: SourceKind) => {
+      // Asking for a source — real, simulated or replayed — is asking to
+      // measure, which indoor mode is the refusal of. The dev panel would
+      // otherwise pick a simulator that silently never starts.
+      setMode('outdoor');
       engine.dropAnchor();
       shouldRun.current = true;
       setSourceKindState(kind);
     },
-    [engine],
+    [engine, setMode],
   );
+
 
   // Restart whenever the source's identity changes (kind, replay log, rate),
   // but never start one unbidden — that would prompt for location without a tap.
@@ -427,6 +466,7 @@ export function useRide() {
       distanceMeters: 0,
       fixCount: 0,
       source: sourceKind,
+      mode,
       // Flattened here, once, so the engine only ever walks a flat array.
       workout: selectedWorkout ? resolveWorkout(selectedWorkout) : null,
       boundaries: [{ at: t, distanceMeters: 0 }],
@@ -437,7 +477,7 @@ export function useRide() {
     rememberLiveSession(rec.id);
     void putSession(rec);
     if (!sourceRef.current) startSource();
-  }, [engine, beeps, voice, offTarget, sourceKind, startSource, selectedWorkout]);
+  }, [engine, beeps, voice, offTarget, sourceKind, startSource, selectedWorkout, mode]);
 
   const pause = useCallback(() => {
     // Drop the anchor so the stopped stretch never gets bridged into distance.
@@ -577,8 +617,11 @@ export function useRide() {
     rememberLiveSession(revived.id);
     void putSession(revived);
     beeps.init();
+    // The record decides, not the current toggle: resuming a treadmill session
+    // must not start a watch, and resuming an outdoor one must.
+    if (rec.mode) setMode(rec.mode);
     if (!sourceRef.current) startSourceRef.current();
-  }, [resumable, engine, beeps]);
+  }, [resumable, engine, beeps, setMode]);
 
   const discardResumable = useCallback(async () => {
     const rec = resumable;
@@ -701,7 +744,8 @@ export function useRide() {
    * measures from a position that isn't known yet.
    */
   const hasUsableFix =
-    !gps.stale && gps.accuracy != null && gps.accuracy <= ACCURACY_GATE_M;
+    mode === 'indoor' ||
+    (!gps.stale && gps.accuracy != null && gps.accuracy <= ACCURACY_GATE_M);
 
   /**
    * Off-target warning: a distinct falling beep, then a word. Only while
@@ -759,6 +803,9 @@ export function useRide() {
     removeWorkout,
     theme,
     toggleTheme,
+    mode,
+    setMode,
+    indoor: mode === 'indoor',
     wakeLockEnabled,
     setWakeLockEnabled,
     wakeLockState,

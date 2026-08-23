@@ -157,5 +157,39 @@ console.log('\n--- a session with no segments still exports ---');
   ok('text summary does not throw', toTextSummary(bare).length > 0);
 }
 
+console.log('\n--- an indoor session states time, and nothing distance implies ---');
+{
+  // The odometer never moved on a treadmill. Zero miles is not a measurement,
+  // so the export leaves those columns empty rather than reporting a session
+  // that covered nothing at a pace of nothing.
+  // A name without a comma in it, so a row splits cleanly on commas here.
+  const treadmill = session({
+    mode: 'indoor',
+    distanceMeters: 0,
+    fixCount: 0,
+    workout: resolveWorkout({ ...workout, name: 'Treadmill' }),
+  });
+  const s = summarize(treadmill);
+  eq('flagged indoor', s.indoor, true);
+  eq('time is still exact', s.totalMs, 480_000);
+  eq('no average pace', s.avgPaceSecPerMile, null);
+
+  const lines = toCsv(treadmill).split('\n');
+  eq('header still declares nine columns', lines[0]!.split(',').length, 9);
+  for (const row of lines.slice(1)) {
+    const cells = row.split(',');
+    ok('distance cell empty', cells[4] === '', row);
+    ok('pace cells empty', cells[5] === '' && cells[6] === '', row);
+    ok('no delta against the goal', cells[8] === '', row);
+    ok('duration is still there', Number(cells[2]) > 0, row);
+  }
+
+  const text = toTextSummary(treadmill);
+  ok('text says indoor', text.includes('indoor'), text.split('\n')[1]!);
+  ok('text states no miles', !text.includes(' mi'), text);
+  ok('text states no pace', !text.includes('/mi') && !text.includes('--:--'), text);
+  ok('but still lists the segments', text.split('\n').filter((l) => /^On |^Rest /.test(l)).length === 2, text);
+}
+
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURES`);
 process.exit(fails === 0 ? 0 : 1);

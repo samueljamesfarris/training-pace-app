@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { completedSegments } from '../lib/segments';
-import { elapsedMs } from '../lib/types';
+import { elapsedMs, isIndoor } from '../lib/types';
 import {
   averageMph,
   formatClock,
@@ -27,6 +27,7 @@ export function FinishCard({
   const [note, setNote] = useState<string | null>(null);
   if (!session || session.status !== 'finished') return null;
 
+  const indoor = isIndoor(session);
   const total = elapsedMs(session, session.finishedAt ?? Date.now());
   const avg = averageMph(ride.gps.distanceMeters, total);
   const segments = completedSegments(session, ride.now, ride.gps.distanceMeters);
@@ -98,22 +99,40 @@ export function FinishCard({
               <div className="text-4xl font-black">{formatClock(total)}</div>
               <div className="text-xs font-bold tracking-widest text-muted uppercase">time</div>
             </div>
-            <div>
-              <div className="text-4xl font-black">{formatMiles(ride.gps.distanceMeters)}</div>
-              <div className="text-xs font-bold tracking-widest text-muted uppercase">miles</div>
-            </div>
-            <div>
-              <div className="text-4xl font-black">{formatPace(avg)}</div>
-              <div className="text-xs font-bold tracking-widest text-muted uppercase">
-                avg pace
+            {/* An indoor session measured no position, so miles, pace and mph
+                are absent rather than zero — the treadmill has those numbers,
+                this app doesn't, and printing 0.00 would be inventing one. */}
+            {indoor ? (
+              <div>
+                <div className="text-4xl font-black">{segments.length}</div>
+                <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                  {session.workout ? 'segments' : 'laps'}
+                </div>
               </div>
-            </div>
-            <div>
-              <div className="text-4xl font-black">{formatSpeed(avg)}</div>
-              <div className="text-xs font-bold tracking-widest text-muted uppercase">
-                avg mph
-              </div>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <div className="text-4xl font-black">
+                    {formatMiles(ride.gps.distanceMeters)}
+                  </div>
+                  <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                    miles
+                  </div>
+                </div>
+                <div>
+                  <div className="text-4xl font-black">{formatPace(avg)}</div>
+                  <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                    avg pace
+                  </div>
+                </div>
+                <div>
+                  <div className="text-4xl font-black">{formatSpeed(avg)}</div>
+                  <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                    avg mph
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {segments.length > 1 && (
@@ -123,9 +142,9 @@ export function FinishCard({
                   <tr className="text-[11px] tracking-widest text-muted uppercase">
                     <th className="text-left font-bold">segment</th>
                     <th className="text-right font-bold">time</th>
-                    <th className="text-right font-bold">dist</th>
-                    <th className="text-right font-bold">pace</th>
-                    {hasTargets && <th className="text-right font-bold">vs goal</th>}
+                    {!indoor && <th className="text-right font-bold">dist</th>}
+                    {!indoor && <th className="text-right font-bold">pace</th>}
+                    {!indoor && hasTargets && <th className="text-right font-bold">vs goal</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -133,11 +152,15 @@ export function FinishCard({
                     <tr key={s.index} className="border-t border-line">
                       <td className="py-1 font-bold">{s.name}</td>
                       <td className="py-1 text-right">{formatClock(s.durationMs)}</td>
-                      <td className="py-1 text-right">{formatMiles(s.distanceMeters)}</td>
-                      <td className="py-1 text-right font-bold">
-                        {formatPace(averageMph(s.distanceMeters, s.durationMs))}
-                      </td>
-                      {hasTargets && (
+                      {!indoor && (
+                        <td className="py-1 text-right">{formatMiles(s.distanceMeters)}</td>
+                      )}
+                      {!indoor && (
+                        <td className="py-1 text-right font-bold">
+                          {formatPace(averageMph(s.distanceMeters, s.durationMs))}
+                        </td>
+                      )}
+                      {!indoor && hasTargets && (
                         <td className="py-1 text-right font-bold">{deltaFor(s)}</td>
                       )}
                     </tr>
@@ -148,8 +171,9 @@ export function FinishCard({
           )}
 
           <div className="mt-3 text-center text-sm text-muted">
-            {ride.gps.fixCount} fixes · {ride.gps.rejectedCount} rejected on accuracy ·{' '}
-            {ride.gps.dropoutCount} dropout gaps
+            {indoor
+              ? 'Indoor session — timing only, no position was measured.'
+              : `${ride.gps.fixCount} fixes · ${ride.gps.rejectedCount} rejected on accuracy · ${ride.gps.dropoutCount} dropout gaps`}
           </div>
           {note && <div className="mt-2 text-center text-sm font-semibold">{note}</div>}
         </div>
@@ -160,12 +184,16 @@ export function FinishCard({
       <div className="shrink-0 px-5 pt-2 pb-3">
         <div className="mx-auto flex w-full max-w-md flex-col gap-2">
           <div className="flex gap-2">
-            <button
-              onClick={() => void exportLog()}
-              className="h-[56px] min-w-0 flex-1 rounded-2xl bg-next text-base font-bold text-next-ink"
-            >
-              Export raw log
-            </button>
+            {/* There is no raw log to export from a session that logged no
+                fixes, so indoors the button isn't offered. */}
+            {!indoor && (
+              <button
+                onClick={() => void exportLog()}
+                className="h-[56px] min-w-0 flex-1 rounded-2xl bg-next text-base font-bold text-next-ink"
+              >
+                Export raw log
+              </button>
+            )}
             <button
               onClick={onOpenHistory}
               className="h-[56px] min-w-0 flex-1 rounded-2xl border-2 border-line text-base font-bold text-ink"

@@ -1,5 +1,5 @@
 import { completedSegments } from '../lib/segments';
-import { elapsedMs } from '../lib/types';
+import { elapsedMs, isIndoor } from '../lib/types';
 import { averageMph, formatClock, formatMiles, formatPace } from '../lib/units';
 import type { Ride } from '../lib/useRide';
 
@@ -19,6 +19,7 @@ export function ResumePrompt({ ride }: { ride: Ride }) {
   const elapsed = elapsedMs(rec, rec.lastSeenAt);
   const segs = completedSegments(rec, rec.lastSeenAt, rec.distanceMeters);
   const awayMs = Math.max(0, now - rec.lastSeenAt);
+  const indoor = isIndoor(rec);
 
   return (
     <div className="absolute inset-0 z-40 flex flex-col justify-center bg-surface px-5 text-ink">
@@ -26,6 +27,7 @@ export function ResumePrompt({ ride }: { ride: Ride }) {
       <p className="mb-5 text-center text-sm text-muted">
         Started {new Date(rec.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
         {rec.workout ? ` · ${rec.workout.name}` : ' · Free run'}
+        {indoor && ' · indoor'}
       </p>
 
       <div className="grid grid-cols-2 gap-4 rounded-2xl bg-card p-5">
@@ -33,16 +35,23 @@ export function ResumePrompt({ ride }: { ride: Ride }) {
           <div className="text-4xl font-black">{formatClock(elapsed)}</div>
           <div className="text-xs font-bold tracking-widest text-muted uppercase">elapsed</div>
         </div>
-        <div>
-          <div className="text-4xl font-black">{formatMiles(rec.distanceMeters)}</div>
-          <div className="text-xs font-bold tracking-widest text-muted uppercase">miles</div>
-        </div>
-        <div>
-          <div className="text-4xl font-black">
-            {formatPace(averageMph(rec.distanceMeters, elapsed))}
-          </div>
-          <div className="text-xs font-bold tracking-widest text-muted uppercase">avg pace</div>
-        </div>
+        {/* An indoor session measured neither, and zero is not a measurement. */}
+        {!indoor && (
+          <>
+            <div>
+              <div className="text-4xl font-black">{formatMiles(rec.distanceMeters)}</div>
+              <div className="text-xs font-bold tracking-widest text-muted uppercase">miles</div>
+            </div>
+            <div>
+              <div className="text-4xl font-black">
+                {formatPace(averageMph(rec.distanceMeters, elapsed))}
+              </div>
+              <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                avg pace
+              </div>
+            </div>
+          </>
+        )}
         <div>
           <div className="text-4xl font-black">
             {rec.workout ? `${segs.length}/${rec.workout.segments.length}` : segs.length}

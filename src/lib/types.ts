@@ -1,3 +1,4 @@
+import type { RideMode } from './mode';
 import type { ResolvedWorkout } from './workouts';
 
 /** A GPS fix exactly as it arrived, before any smoothing or filtering. */
@@ -45,6 +46,12 @@ export interface SessionRecord {
   /** Which source produced this session's fixes. Replay is its own kind, or a
    *  replayed session is indistinguishable from a simulated one after the fact. */
   source: 'geo' | 'sim' | 'replay';
+  /**
+   * Indoor sessions measure no position at all, so every distance-derived
+   * number on the record is absent rather than zero. Optional because records
+   * written before indoor mode existed are all outdoor rides.
+   */
+  mode?: RideMode;
   /** The loaded workout, already flattened. Null for a free run. */
   workout: ResolvedWorkout | null;
   /** Segment (or lap) start instants, in order. */
@@ -55,6 +62,15 @@ export interface SessionRecord {
    * and resume excludes it rather than silently inflating the workout.
    */
   lastSeenAt: number;
+}
+
+/**
+ * True when the session never measured distance, so nothing derived from it —
+ * miles, pace, speed, a goal delta — may be stated for it. The same rule as
+ * `sanePaceSecPerMile`: a number we cannot honestly measure is not shown.
+ */
+export function isIndoor(rec: { mode?: RideMode }): boolean {
+  return rec.mode === 'indoor';
 }
 
 /** Paused milliseconds falling inside the window [from, to]. */

@@ -97,6 +97,10 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
   // Paused mid-session, picking a workout replaces the one in progress rather
   // than arming the next session.
   const swapping = ride.session != null && ride.session.status === 'paused';
+  // Indoors nothing measures distance, so a distance-ended segment has no
+  // boundary to arrive at — it waits for a tap. Better said here, while he is
+  // choosing, than discovered on the treadmill mid-rep.
+  const indoor = ride.session ? ride.session.mode === 'indoor' : ride.indoor;
 
   function choose(w: WorkoutDef | null) {
     ride.setSelectedWorkout(w);
@@ -155,6 +159,12 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
           </button>
         </div>
       </header>
+      {indoor && (
+        <div className="mx-4 mt-3 rounded-xl bg-raised px-3 py-2 text-xs font-semibold text-muted">
+          Indoor: timed segments run themselves. A segment measured in distance
+          waits for NEXT — watch the treadmill for the distance.
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
         <button

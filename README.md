@@ -21,6 +21,31 @@ Plus the workout builder (step 6): create, edit, duplicate and delete workouts,
 stored in IndexedDB. Presets are read-only — "Duplicate" is how you make one
 yours.
 
+### Indoor and outdoor
+
+The home screen picks where the session happens, and the choice is remembered
+between launches.
+
+**Outdoor** is the app as built: the GPS is the instrument.
+
+**Indoor** is the treadmill. The phone never starts a position watch — no
+permission prompt, no battery spent on a watch whose readings nobody shows —
+and every distance-derived number is *absent rather than zero*: no miles, no
+measured pace, no speed, on the ride screen, the finish card, the history
+detail, the CSV and the text summary alike. A treadmill session that reported
+0.00 miles at a pace of nothing would be stating a measurement it never made.
+
+What still runs is everything the treadmill can't do: the session clock,
+segment timing, auto-advance on timed segments, the beeps, the spoken cues,
+and the goal pace for the current segment shown large so it can be dialed into
+the machine. A segment measured in *distance* has no boundary to arrive at
+indoors, so it counts its own time up and waits for NEXT — the picker and the
+hero both say so.
+
+The mode is recorded on the session, so a resumed treadmill session stays one,
+and history knows why a ride has no distance. Choosing a source in the dev
+panel switches back to outdoor, since asking for a source is asking to measure.
+
 ### Theme
 
 Night is the default, since most sessions start before sunrise: near-black

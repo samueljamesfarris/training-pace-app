@@ -12,6 +12,7 @@ import {
   formatSpeed,
   mpsToMph,
 } from '../lib/units';
+import { isIndoor } from '../lib/types';
 import type { Ride } from '../lib/useRide';
 
 function Stat({
@@ -92,6 +93,21 @@ function TargetBand({ ride }: { ride: Ride }) {
       <span className={`rounded px-2 py-0.5 text-xs font-black tracking-widest ${tone}`}>
         {word}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Indoors there is no accuracy, no staleness and no dropout to report — the
+ * chip says so plainly rather than showing a dead GPS readout all session.
+ */
+function IndoorChip() {
+  return (
+    <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+      <span className="rounded bg-info px-1.5 py-0.5 text-xs font-bold text-info-ink">
+        INDOOR
+      </span>
+      <span className="text-muted">no GPS</span>
     </div>
   );
 }
@@ -177,7 +193,11 @@ export function RideScreen({
   const avgMph = averageMph(gps.distanceMeters, elapsed);
   const running = session?.status === 'running';
   const paused = session?.status === 'paused';
-  const dim = gps.stale ? 'opacity-40' : '';
+  // A live session's own mode wins over the toggle, which is only ever changed
+  // between sessions — a resumed treadmill ride stays a treadmill ride.
+  const indoor = session ? isIndoor(session) : ride.indoor;
+  // Nothing is stale when nothing is being measured.
+  const dim = gps.stale && !indoor ? 'opacity-40' : '';
   const paceTone =
     ride.paceDeviation === 'fast'
       ? 'text-too-fast'
@@ -187,19 +207,18 @@ export function RideScreen({
   const workout = session?.workout ?? null;
   const sessionLive = !!session && session.status !== 'finished';
   // The most recently *closed* lap; the open one is still running.
-  const lastLap =
+  const closedLaps =
     session && !workout
-      ? completedSegments(session, ride.now, gps.distanceMeters)
-          .filter((l) => !l.open)
-          .at(-1)
-      : undefined;
+      ? completedSegments(session, ride.now, gps.distanceMeters).filter((l) => !l.open)
+      : [];
+  const lastLap = closedLaps.at(-1);
   const atLastSegment =
     !!workout && !!session && currentIndex(session) >= workout.segments.length - 1;
 
   return (
     <div className="relative flex h-full flex-col bg-surface text-ink">
       <header className="flex items-center justify-between px-4 py-2">
-        <GpsChip ride={ride} />
+        {indoor ? <IndoorChip /> : <GpsChip ride={ride} />}
         <div className="flex items-center gap-3">
           {session && (
             <span className="text-xs font-bold tracking-widest text-muted uppercase">
@@ -259,10 +278,35 @@ export function RideScreen({
             session={session}
             now={ride.now}
             distanceMeters={gps.distanceMeters}
-            stale={gps.stale}
+            stale={!indoor && gps.stale}
             acquiring={gps.acquiring}
-            band={<TargetBand ride={ride} />}
+            measuring={!indoor}
+            /* Indoors the goal pace is a stat of its own below, and the
+               verdict beside it could only ever read NO PACE. */
+            band={indoor ? undefined : <TargetBand ride={ride} />}
           />
+        ) : indoor ? (
+          /* A free run on a treadmill has one honest big number: the clock. */
+          <section className="flex flex-col items-center justify-center">
+            <div className="text-[clamp(4.5rem,29vw,15rem)] leading-[0.9] font-black tracking-tight">
+              {formatClock(elapsed)}
+            </div>
+            <div className="text-sm font-bold tracking-widest text-muted uppercase">
+              elapsed
+            </div>
+            {session && (
+              <div className="mt-2 rounded-full bg-raised px-4 py-1 text-sm font-bold">
+                {lastLap ? (
+                  <>
+                    <span className="text-muted">LAP {lastLap.index + 1}</span>{' '}
+                    {formatClock(lastLap.durationMs)}
+                  </>
+                ) : (
+                  <span className="text-muted">0 LAPS</span>
+                )}
+              </div>
+            )}
+          </section>
         ) : (
           <section className="flex flex-col items-center justify-center">
             <div
@@ -289,36 +333,69 @@ export function RideScreen({
         )}
 
         <section className="flex flex-col gap-3">
-          {/* With a workout loaded the countdown owns the hero, so pace moves
-              here — still the largest thing after the segment clock. */}
-          <div className="grid grid-cols-2 gap-2">
-            {workout ? (
-              <>
-                <div className={`${dim} ${paceTone}`}>
-                  <Stat label="min / mile" value={formatPaceSeconds(gps.paceSecPerMile)} size="lg" />
-                </div>
-                <Stat label="total time" value={formatClock(elapsed)} size="lg" />
-              </>
-            ) : (
-              <>
-                <div className={dim}>
-                  <Stat label="speed" value={formatSpeed(mph)} unit="mph" size="lg" />
-                </div>
-                <Stat label="elapsed" value={formatClock(elapsed)} size="lg" />
-              </>
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-2 border-t border-line pt-3">
-            {workout ? (
-              <div className={dim}>
-                <Stat label="mph" value={formatSpeed(mph)} />
+          {/* Indoors every GPS-derived number is absent, not zero: no speed, no
+              distance, no pace. What is left is what the treadmill can't tell
+              him — the goal to dial in, and the clocks. */}
+          {indoor ? (
+            <div className="grid grid-cols-2 gap-2">
+              {workout ? (
+                <>
+                  <Stat
+                    label="target / mile"
+                    value={formatPaceSeconds(ride.targetPaceSec)}
+                    size="lg"
+                  />
+                  <Stat label="total time" value={formatClock(elapsed)} size="lg" />
+                </>
+              ) : (
+                <>
+                  <Stat label="laps" value={String(closedLaps.length)} size="lg" />
+                  <Stat
+                    label="last lap"
+                    value={lastLap ? formatClock(lastLap.durationMs) : '--:--'}
+                    size="lg"
+                  />
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* With a workout loaded the countdown owns the hero, so pace moves
+                  here — still the largest thing after the segment clock. */}
+              <div className="grid grid-cols-2 gap-2">
+                {workout ? (
+                  <>
+                    <div className={`${dim} ${paceTone}`}>
+                      <Stat
+                        label="min / mile"
+                        value={formatPaceSeconds(gps.paceSecPerMile)}
+                        size="lg"
+                      />
+                    </div>
+                    <Stat label="total time" value={formatClock(elapsed)} size="lg" />
+                  </>
+                ) : (
+                  <>
+                    <div className={dim}>
+                      <Stat label="speed" value={formatSpeed(mph)} unit="mph" size="lg" />
+                    </div>
+                    <Stat label="elapsed" value={formatClock(elapsed)} size="lg" />
+                  </>
+                )}
               </div>
-            ) : (
-              <Stat label="avg mph" value={formatSpeed(avgMph)} />
-            )}
-            <Stat label="avg pace" value={formatPace(avgMph)} />
-            <Stat label="distance" value={formatMiles(gps.distanceMeters)} unit="mi" />
-          </div>
+              <div className="grid grid-cols-3 gap-2 border-t border-line pt-3">
+                {workout ? (
+                  <div className={dim}>
+                    <Stat label="mph" value={formatSpeed(mph)} />
+                  </div>
+                ) : (
+                  <Stat label="avg mph" value={formatSpeed(avgMph)} />
+                )}
+                <Stat label="avg pace" value={formatPace(avgMph)} />
+                <Stat label="distance" value={formatMiles(gps.distanceMeters)} unit="mi" />
+              </div>
+            </>
+          )}
         </section>
       </main>
 
@@ -333,6 +410,31 @@ export function RideScreen({
                 History
               </button>
             </div>
+            <div className="mb-2 flex gap-2">
+              {/* Where the session happens decides whether the phone measures
+                  anything at all, so it is chosen here, before START, and not
+                  buried in the dev panel. */}
+              {(['outdoor', 'indoor'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => ride.setMode(m)}
+                  aria-pressed={ride.mode === m}
+                  className={`h-[48px] flex-1 rounded-xl border-2 text-sm font-black tracking-widest uppercase ${
+                    ride.mode === m
+                      ? 'border-next bg-next text-next-ink'
+                      : 'border-line text-muted active:bg-raised'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            {indoor && (
+              <div className="mb-2 rounded-xl bg-raised px-3 py-2 text-xs font-semibold text-muted">
+                Treadmill: no GPS, no distance and no measured pace. Segment
+                timing, goal paces and the cues all still run.
+              </div>
+            )}
             <button
               onClick={onOpenPicker}
               className="mb-2 flex w-full items-center justify-between rounded-xl border-2 border-line px-4 py-3 text-left active:bg-raised"
@@ -363,18 +465,31 @@ export function RideScreen({
               >
                 {startArmed ? 'NO GPS — START?' : 'START'}
               </button>
-              <button
-                onClick={ride.gpsActive ? ride.stopSource : ride.startSource}
-                className="h-[76px] flex-1 rounded-2xl border-2 border-line text-base font-bold text-ink active:bg-raised"
-              >
-                {ride.gpsActive ? 'GPS ON' : 'WARM UP GPS'}
-              </button>
+              {/* Nothing to warm up indoors. */}
+              {!indoor && (
+                <button
+                  onClick={ride.gpsActive ? ride.stopSource : ride.startSource}
+                  className="h-[76px] flex-1 rounded-2xl border-2 border-line text-base font-bold text-ink active:bg-raised"
+                >
+                  {ride.gpsActive ? 'GPS ON' : 'WARM UP GPS'}
+                </button>
+              )}
             </div>
           </>
         )}
 
         {session && session.status !== 'finished' && (
           <>
+            {/* Sat at the vertical center of the screen, where it covered
+                whichever number was underneath it. It belongs with the button
+                that clears it. */}
+            {paused && (
+              <div className="mb-2 flex justify-center">
+                <span className="rounded-full bg-hold px-4 py-1 text-sm font-black tracking-widest text-hold-ink uppercase">
+                  paused
+                </span>
+              </div>
+            )}
             {/* Changing the workout is not one of the ride controls, and made
                 the row below a four-up: at that width every label wrapped
                 inside its own button — "CONFIRM 4" split across two lines. */}
@@ -434,13 +549,6 @@ export function RideScreen({
 
       </footer>
 
-      {paused && (
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 flex justify-center">
-          <span className="rounded-full bg-hold px-4 py-1 text-sm font-black tracking-widest text-hold-ink uppercase">
-            paused
-          </span>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { completedSegments } from './segments';
-import { elapsedMs, type SessionRecord } from './types';
+import { elapsedMs, isIndoor, type SessionRecord } from './types';
 import {
   averageMph,
   formatClock,
@@ -25,6 +25,8 @@ export interface SessionSummary {
   segmentCount: number;
   finished: boolean;
   source: SessionRecord['source'];
+  /** True when no position was measured, so distance and pace mean nothing. */
+  indoor: boolean;
 }
 
 /** The instant a session's clock should be read at: its end, or its heartbeat. */
@@ -34,6 +36,9 @@ function ceilingFor(rec: SessionRecord): number {
 
 export function summarize(rec: SessionRecord): SessionSummary {
   const totalMs = elapsedMs(rec, ceilingFor(rec));
+  // An indoor session's odometer never moved. Zero meters already yields a
+  // null pace, but the flag says *why*, so a reader shows a blank rather than
+  // a suspiciously slow ride.
   const mph = averageMph(rec.distanceMeters, totalMs);
   return {
     id: rec.id,
@@ -45,6 +50,7 @@ export function summarize(rec: SessionRecord): SessionSummary {
     segmentCount: rec.boundaries.length,
     finished: rec.status === 'finished',
     source: rec.source,
+    indoor: isIndoor(rec),
   };
 }
 
@@ -68,6 +74,10 @@ export function toCsv(rec: SessionRecord): string {
   const ceiling = ceilingFor(rec);
   const rows = completedSegments(rec, ceiling, rec.distanceMeters);
   const targets = rec.workout?.segments ?? [];
+  // Indoors the distance columns are empty, not zero: a spreadsheet summing a
+  // column of 0.000 miles would report a treadmill session as a ride that
+  // covered nothing, which is a different claim from "not measured".
+  const indoor = isIndoor(rec);
 
   const header = [
     'segment',
@@ -92,11 +102,11 @@ export function toCsv(rec: SessionRecord): string {
         csvCell(row.name),
         Math.round(row.durationMs / 1000),
         csvCell(formatClock(row.durationMs)),
-        metersToMiles(row.distanceMeters).toFixed(3),
-        paceSec == null ? '' : Math.round(paceSec),
-        csvCell(paceSec == null ? '' : formatPace(mph)),
+        indoor ? '' : metersToMiles(row.distanceMeters).toFixed(3),
+        indoor || paceSec == null ? '' : Math.round(paceSec),
+        csvCell(indoor || paceSec == null ? '' : formatPace(mph)),
         target ?? '',
-        target != null && paceSec != null ? Math.round(paceSec - target) : '',
+        !indoor && target != null && paceSec != null ? Math.round(paceSec - target) : '',
       ].join(','),
     );
   }
@@ -108,9 +118,9 @@ export function toCsv(rec: SessionRecord): string {
       csvCell(rec.workout?.name ?? 'Free run'),
       Math.round(total.totalMs / 1000),
       csvCell(formatClock(total.totalMs)),
-      metersToMiles(total.distanceMeters).toFixed(3),
-      total.avgPaceSecPerMile == null ? '' : Math.round(total.avgPaceSecPerMile),
-      csvCell(formatPace(averageMph(total.distanceMeters, total.totalMs))),
+      indoor ? '' : metersToMiles(total.distanceMeters).toFixed(3),
+      indoor || total.avgPaceSecPerMile == null ? '' : Math.round(total.avgPaceSecPerMile),
+      csvCell(indoor ? '' : formatPace(averageMph(total.distanceMeters, total.totalMs))),
       '',
       '',
     ].join(','),
@@ -131,10 +141,12 @@ export function toTextSummary(rec: SessionRecord): string {
   });
   const head = [
     s.workoutName ?? 'Free run',
-    when,
-    `${formatClock(s.totalMs)} · ${formatMiles(s.distanceMeters)} mi · ${formatPace(
-      averageMph(s.distanceMeters, s.totalMs),
-    )}/mi`,
+    s.indoor ? `${when} · indoor` : when,
+    s.indoor
+      ? formatClock(s.totalMs)
+      : `${formatClock(s.totalMs)} · ${formatMiles(s.distanceMeters)} mi · ${formatPace(
+          averageMph(s.distanceMeters, s.totalMs),
+        )}/mi`,
   ];
 
   const rows = completedSegments(rec, ceiling, rec.distanceMeters);
@@ -144,6 +156,7 @@ export function toTextSummary(rec: SessionRecord): string {
     const mph = paceSec == null ? null : 3600 / paceSec;
     const target = targets[row.index]?.targetPaceSecPerMile;
     const delta = target != null && paceSec != null ? Math.round(paceSec - target) : null;
+    if (s.indoor) return `${row.name}  ${formatClock(row.durationMs)}`;
     return (
       `${row.name}  ${formatClock(row.durationMs)}  ${formatMiles(row.distanceMeters)} mi  ` +
       `${formatPace(mph)}` +
