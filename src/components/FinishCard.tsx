@@ -17,6 +17,19 @@ export function FinishCard({ ride }: { ride: Ride }) {
   const total = elapsedMs(session, session.finishedAt ?? Date.now());
   const avg = averageMph(ride.gps.distanceMeters, total);
   const segments = completedSegments(session, ride.now, ride.gps.distanceMeters);
+  const targets = session.workout?.segments ?? [];
+  const hasTargets = targets.some((t) => t.targetPaceSecPerMile != null);
+
+  /** Seconds per mile off the goal, signed: negative is faster than asked. */
+  function deltaFor(row: { index: number; distanceMeters: number; durationMs: number }) {
+    const target = targets[row.index]?.targetPaceSecPerMile;
+    if (target == null) return '—';
+    const mph = averageMph(row.distanceMeters, row.durationMs);
+    if (mph == null) return '—';
+    const delta = Math.round(3600 / mph - target);
+    if (delta === 0) return 'even';
+    return `${delta > 0 ? '+' : ''}${delta}s`;
+  }
 
   /**
    * A download on iOS lands in Files and then has to be found again. The share
@@ -88,6 +101,7 @@ export function FinishCard({ ride }: { ride: Ride }) {
                 <th className="text-right font-bold">time</th>
                 <th className="text-right font-bold">dist</th>
                 <th className="text-right font-bold">pace</th>
+                {hasTargets && <th className="text-right font-bold">vs goal</th>}
               </tr>
             </thead>
             <tbody>
@@ -99,6 +113,9 @@ export function FinishCard({ ride }: { ride: Ride }) {
                   <td className="py-1 text-right font-bold">
                     {formatPace(averageMph(s.distanceMeters, s.durationMs))}
                   </td>
+                  {hasTargets && (
+                    <td className="py-1 text-right font-bold">{deltaFor(s)}</td>
+                  )}
                 </tr>
               ))}
             </tbody>

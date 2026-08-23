@@ -37,6 +37,9 @@
   --color-bad-ink: var(--bad-ink);
   --color-info: var(--info);
   --color-info-ink: var(--info-ink);
+
+  --color-too-fast: var(--too-fast);
+  --color-too-slow: var(--too-slow);
 }
 
 /* Daylight: dark ink on a light ground, for direct morning sun. */
@@ -70,6 +73,10 @@
   --bad-ink: #ffffff;
   --info: #4338ca;
   --info-ink: #ffffff;
+  /* Off-target states. Always paired with a word on screen — the spec is
+     explicit that color must never carry the meaning alone. */
+  --too-fast: #b45309;
+  --too-slow: #4338ca;
 }
 
 /* Pre-dawn: near-black ground, light type, and bright button fills dark enough
@@ -104,6 +111,8 @@
   --bad-ink: #1a0505;
   --info: #a5b4fc;
   --info-ink: #0b0f14;
+  --too-fast: #fbbf24;
+  --too-slow: #a5b4fc;
 }
 
 html,

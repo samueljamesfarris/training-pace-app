@@ -316,6 +316,38 @@ function SegmentRow({
         </div>
       </div>
 
+      {/* Target pace is optional, and absent by default: most segments don't
+          have one, and an empty field invites filling in. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold tracking-widest text-muted uppercase">
+          target
+        </span>
+        {seg.targetPaceSecPerMile == null ? (
+          <SmallButton
+            onClick={() => onChange({ ...seg, targetPaceSecPerMile: 480 })}
+          >
+            + Goal pace
+          </SmallButton>
+        ) : (
+          <>
+            <TimeInput
+              seconds={seg.targetPaceSecPerMile}
+              onChange={(v) => onChange({ ...seg, targetPaceSecPerMile: v })}
+            />
+            <span className="text-xs font-bold text-muted">/ mile</span>
+            <SmallButton
+              onClick={() => {
+                const { targetPaceSecPerMile: _drop, ...rest } = seg;
+                onChange(rest);
+              }}
+              tone="danger"
+            >
+              ✕
+            </SmallButton>
+          </>
+        )}
+      </div>
+
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <div className="flex gap-1">
           <button
@@ -631,6 +663,7 @@ export function WorkoutBuilder({
                   : s.end.meters >= MILE
                     ? `${(s.end.meters / MILE).toFixed(2)} mi`
                     : `${Math.round(s.end.meters)} m`}
+                {s.targetPaceSecPerMile != null && ` @ ${formatClock(s.targetPaceSecPerMile * 1000)}`}
               </span>
             ))}
           </div>

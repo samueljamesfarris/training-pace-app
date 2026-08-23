@@ -44,6 +44,9 @@ being correct and dull over clever.
   from the same boundary instant the countdown displays.
 - `src/lib/speech.ts` — spoken cues layered on the beeps. Best-effort by
   design: iOS drops speech silently, so nothing may depend on it.
+- `src/lib/offTarget.ts` — pace against a segment's goal. Pure and stateful:
+  five continuous seconds outside the band before it speaks, twenty between
+  warnings, and a direction change restarts the hold.
 - `src/lib/sources.ts` — real GPS, synthetic simulator, and recorded-log replay,
   all emitting the identical fix shape so simulation exercises real code.
 - `src/lib/useRide.ts` — session state machine, persistence, tick, cue
@@ -122,7 +125,6 @@ Built: steps 1–6 of the spec's build order, plus beeps. Verified against two
 real rides.
 
 Open, roughly in priority order:
-- Target paces and tolerance bands, plus the off-target warning
 - History, summary, CSV export (step 7)
 - Kilometers — all pace maths and displays currently assume miles
 - A real settings screen; audio and wake-lock toggles currently live in the dev

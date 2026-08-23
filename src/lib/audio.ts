@@ -11,12 +11,13 @@
  *   boundary       one long 1.5 s beep at 1568 Hz   "go / next segment"
  *   manual lap     one short chirp at 1318 Hz
  *   mile split     two quick chirps at 1318 Hz  "another mile"
+ *   off target     a falling pair, 1174 -> 880 Hz   "adjust"
  *
  * Frequencies sit in the 750–1600 Hz band where a phone speaker is loudest and
  * wind noise is weakest; a bike at 10 mph is a noisy place.
  */
 
-export type CueName = 'warning' | 'countdown' | 'boundary' | 'lap' | 'mile';
+export type CueName = 'warning' | 'countdown' | 'boundary' | 'lap' | 'mile' | 'offTarget';
 
 interface ToneSpec {
   freq: number;
@@ -39,6 +40,12 @@ const CUES: Record<CueName, ToneSpec[]> = {
     { freq: 1318, duration: 0.1, at: 0 },
     { freq: 1318, duration: 0.1, at: 0.16 },
   ],
+  // Falling, where every other cue is level or doubled: "something needs
+  // adjusting" has to be distinguishable from "something happened".
+  offTarget: [
+    { freq: 1174, duration: 0.14, at: 0 },
+    { freq: 880, duration: 0.18, at: 0.17 },
+  ],
 };
 
 /** Seconds before a segment ends at which each cue fires. */
@@ -50,6 +57,7 @@ export interface AudioSettings {
   warning: boolean;
   countdown: boolean;
   boundary: boolean;
+  offTarget: boolean;
   /** 0..1 */
   volume: number;
 }
@@ -59,6 +67,7 @@ export const DEFAULT_AUDIO: AudioSettings = {
   warning: true,
   countdown: true,
   boundary: true,
+  offTarget: true,
   volume: 1,
 };
 
@@ -125,6 +134,7 @@ export class BeepEngine {
     if (cue === 'warning') return this.settings.warning;
     if (cue === 'countdown') return this.settings.countdown;
     if (cue === 'boundary') return this.settings.boundary;
+    if (cue === 'offTarget') return this.settings.offTarget;
     return true;
   }
 

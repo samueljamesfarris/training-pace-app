@@ -32,12 +32,15 @@ export function SegmentHero({
   distanceMeters,
   stale,
   acquiring,
+  band,
 }: {
   session: SessionRecord;
   now: number;
   distanceMeters: number;
   stale: boolean;
   acquiring: boolean;
+  /** The target/verdict row, when the segment has a goal pace. */
+  band?: React.ReactNode;
 }) {
   const seg = currentSegment(session);
   const next = onDeckSegment(session);
@@ -102,6 +105,8 @@ export function SegmentHero({
           GPS lost — numbers frozen
         </div>
       )}
+
+      {band}
 
       <div className="mt-2 rounded-full bg-raised px-4 py-1 text-sm font-bold">
         {next ? (

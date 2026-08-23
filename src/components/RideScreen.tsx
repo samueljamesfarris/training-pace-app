@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ACCURACY_GATE_M } from '../lib/gpsEngine';
 import { completedSegments, currentIndex } from '../lib/segments';
+import { formatPaceSeconds as fmtPace } from '../lib/units';
 import { SegmentHero } from './SegmentHero';
 import {
   averageMph,
@@ -50,6 +51,42 @@ function Stat({
  */
 const HEADER_BUTTON =
   'inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border px-2 text-xs font-bold';
+
+/**
+ * The verdict on pace, in words. Color is carried alongside, never alone —
+ * in direct sun on a bouncing mount, a color difference is not a signal.
+ */
+function TargetBand({ ride }: { ride: Ride }) {
+  const { targetPaceSec, paceDeviation } = ride;
+  if (targetPaceSec == null) return null;
+  // No pace reading is not the same as being on pace. Claiming "ON PACE" with
+  // nothing measured is exactly the fabricated reading the app must never show.
+  const known = ride.gps.paceSecPerMile != null;
+  const word = !known
+    ? 'NO PACE'
+    : paceDeviation === 'fast'
+      ? 'EASE UP'
+      : paceDeviation === 'slow'
+        ? 'PICK IT UP'
+        : 'ON PACE';
+  const tone = !known
+    ? 'bg-raised text-muted opacity-60'
+    : paceDeviation === 'fast'
+      ? 'bg-too-fast text-surface'
+      : paceDeviation === 'slow'
+        ? 'bg-too-slow text-surface'
+        : 'bg-raised text-muted';
+  return (
+    <div className="mt-1 flex items-center justify-center gap-2">
+      <span className="rounded bg-raised px-2 py-0.5 text-xs font-bold text-muted">
+        TARGET {fmtPace(targetPaceSec)}
+      </span>
+      <span className={`rounded px-2 py-0.5 text-xs font-black tracking-widest ${tone}`}>
+        {word}
+      </span>
+    </div>
+  );
+}
 
 function GpsChip({ ride }: { ride: Ride }) {
   const { gps, gpsActive, sourceKind, now } = ride;
@@ -131,6 +168,12 @@ export function RideScreen({
   const running = session?.status === 'running';
   const paused = session?.status === 'paused';
   const dim = gps.stale ? 'opacity-40' : '';
+  const paceTone =
+    ride.paceDeviation === 'fast'
+      ? 'text-too-fast'
+      : ride.paceDeviation === 'slow'
+        ? 'text-too-slow'
+        : '';
   const workout = session?.workout ?? null;
   const sessionLive = !!session && session.status !== 'finished';
   // The most recently *closed* lap; the open one is still running.
@@ -208,6 +251,7 @@ export function RideScreen({
             distanceMeters={gps.distanceMeters}
             stale={gps.stale}
             acquiring={gps.acquiring}
+            band={<TargetBand ride={ride} />}
           />
         ) : (
           <section className="flex flex-col items-center justify-center">
@@ -240,7 +284,7 @@ export function RideScreen({
           <div className="grid grid-cols-2 gap-2">
             {workout ? (
               <>
-                <div className={dim}>
+                <div className={`${dim} ${paceTone}`}>
                   <Stat label="min / mile" value={formatPaceSeconds(gps.paceSecPerMile)} size="lg" />
                 </div>
                 <Stat label="total time" value={formatClock(elapsed)} size="lg" />

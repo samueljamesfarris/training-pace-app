@@ -64,6 +64,12 @@ import {
   type SpeechSettings,
 } from './speech';
 import { WakeLockManager, type WakeLockState } from './wakeLock';
+import {
+  DEFAULT_TOLERANCE_SEC,
+  deviation,
+  OffTargetWatcher,
+  type OffTargetDirection,
+} from './offTarget';
 
 export type SourceKind = 'geo' | 'sim' | 'replay';
 
@@ -100,6 +106,7 @@ export function useRide() {
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDef | null>(null);
   const [audio, setAudio] = useState<AudioSettings>(DEFAULT_AUDIO);
   const [speech, setSpeech] = useState<SpeechSettings>(DEFAULT_SPEECH);
+  const [toleranceSec, setToleranceSec] = useState(DEFAULT_TOLERANCE_SEC);
   /** Bumped to force cues to be re-scheduled after a suspend or interruption. */
   const [cueEpoch, setCueEpoch] = useState(0);
   const [customWorkouts, setCustomWorkouts] = useState<WorkoutDef[]>([]);
@@ -120,8 +127,11 @@ export function useRide() {
   const advanceRef = useRef<() => void>(() => {});
   /** Late-bound: the visibility handler may need to restart a dead watch. */
   const startSourceRef = useRef<() => void>(() => {});
+  /** Late-bound so the tick can drive the off-target check. */
+  const offTargetRef = useRef<(now: number) => void>(() => {});
   const beeps = useRef(new BeepEngine()).current;
   const voice = useRef(new SpeechEngine()).current;
+  const offTarget = useRef(new OffTargetWatcher()).current;
   /** Whole miles already announced this session, so each is called once. */
   const milesCalled = useRef(0);
   const wakeLock = useRef(new WakeLockManager()).current;
@@ -130,6 +140,8 @@ export function useRide() {
 
   const audioRef = useRef(audio);
   audioRef.current = audio;
+  const gpsRef = useRef(gps);
+  gpsRef.current = gps;
   sessionRef.current = session;
   simConfigRef.current = simConfig;
   suspendedRef.current = suspended;
@@ -314,6 +326,7 @@ export function useRide() {
       setNow(t);
       setGps(engine.snapshot(t));
       advanceRef.current();
+      offTargetRef.current(t);
     }, TICK_MS);
     return () => clearInterval(id);
   }, [engine]);
@@ -400,6 +413,7 @@ export function useRide() {
     engine.resetForSession();
     beeps.init();
     voice.warm();
+    offTarget.resetAll();
     milesCalled.current = 0;
     // Proof the audio pipeline is alive, at the one moment it can still be
     // fixed. Respects the mute toggle, since `play` checks it.
@@ -429,17 +443,18 @@ export function useRide() {
     rememberLiveSession(rec.id);
     void putSession(rec);
     if (!sourceRef.current) startSource();
-  }, [engine, beeps, voice, sourceKind, startSource, selectedWorkout]);
+  }, [engine, beeps, voice, offTarget, sourceKind, startSource, selectedWorkout]);
 
   const pause = useCallback(() => {
     // Drop the anchor so the stopped stretch never gets bridged into distance.
     engine.dropAnchor();
+    offTarget.reset();
     update((rec) =>
       rec.status !== 'running'
         ? rec
         : { ...rec, status: 'paused', pauses: [...rec.pauses, { start: Date.now(), end: null }] },
     );
-  }, [engine, update]);
+  }, [engine, update, offTarget]);
 
   const resume = useCallback(() => {
     engine.dropAnchor();
@@ -508,9 +523,10 @@ export function useRide() {
     // segment has no knowable end time, so it can only be sounded on arrival.
     if (currentSegment(rec)?.end.type === 'distance') beeps.play('boundary');
     const closedIndex = currentIndex(rec);
+    offTarget.reset();
     update((r) => ({ ...r, boundaries: [...r.boundaries, ...add] }));
     announceBoundary(rec, closedIndex);
-  }, [engine, update, beeps, announceBoundary]);
+  }, [engine, update, beeps, announceBoundary, offTarget]);
 
   advanceRef.current = maybeAdvance;
 
@@ -674,12 +690,44 @@ export function useRide() {
   ]);
 
   /**
+   * The current segment's goal pace, and which side of the band we're on right
+   * now. The band verdict is instantaneous — it drives colour and wording, and
+   * needs no hold; only the *warning* waits five seconds.
+   */
+  const targetPaceSec = session ? (currentSegment(session)?.targetPaceSecPerMile ?? null) : null;
+  const paceDeviation: OffTargetDirection | null = deviation(
+    gps.paceSecPerMile,
+    targetPaceSec,
+    toleranceSec,
+  );
+
+  /**
    * A fix arrived recently and was accurate enough to move the odometer. START
    * asks for confirmation without one, because a distance segment started cold
    * measures from a position that isn't known yet.
    */
   const hasUsableFix =
     !gps.stale && gps.accuracy != null && gps.accuracy <= ACCURACY_GATE_M;
+
+  /**
+   * Off-target warning: a distinct falling beep, then a word. Only while
+   * actually running, and only for a segment that has a target at all.
+   */
+  const checkOffTarget = useCallback(
+    (now: number) => {
+      const rec = sessionRef.current;
+      if (!rec || rec.status !== 'running') return;
+      const target = currentSegment(rec)?.targetPaceSecPerMile;
+      const fired = offTarget.update(now, gpsRef.current.paceSecPerMile, target, toleranceSec);
+      if (!fired) return;
+      beeps.play('offTarget');
+      // "ease up" for too fast, "pick it up" for too slow — the beep says
+      // adjust, the word says which way.
+      window.setTimeout(() => voice.say(fired === 'fast' ? 'Ease up' : 'Pick it up'), 500);
+    },
+    [offTarget, beeps, voice, toleranceSec],
+  );
+  offTargetRef.current = checkOffTarget;
 
   const elapsed = useMemo(
     () => (session ? elapsedMs(session, now) : 0),
@@ -728,6 +776,10 @@ export function useRide() {
     applyAudio,
     speech,
     applySpeech,
+    toleranceSec,
+    setToleranceSec,
+    targetPaceSec,
+    paceDeviation,
     previewSpeech,
     speechSupported: voice.supported,
     previewCue,

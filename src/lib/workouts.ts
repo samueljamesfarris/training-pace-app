@@ -8,6 +8,13 @@ export interface SegmentDef {
   name: string;
   kind: SegmentKind;
   end: EndCondition;
+  /**
+   * Optional goal pace in seconds per mile. Optional on purpose: it is absent
+   * from every workout already stored in IndexedDB, and an optional field costs
+   * no migration. The tolerance around it is a single setting rather than a
+   * per-segment value — one band, adjustable once.
+   */
+  targetPaceSecPerMile?: number;
 }
 
 /**

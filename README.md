@@ -45,7 +45,7 @@ button records a lap instead of advancing.
 Plus step 2: screen wake lock, offline service worker, home-screen install, and
 the reload-resume prompt.
 
-Not yet built: target paces and tolerance bands, history and CSV export.
+Not yet built: history and CSV export.
 Kilometers remain a future option; everything assumes miles today.
 
 ### Reliability behaviors
@@ -120,6 +120,7 @@ throttles the JS timer loop.
 | segment boundary / next segment | one long 1.5 s beep, 1568 Hz |
 | manual lap (free run) | one short chirp, 1318 Hz |
 | mile split (free run) | two quick chirps, 1318 Hz |
+| off target | a falling pair, 1174 → 880 Hz |
 
 Frequencies sit in the 750–1600 Hz band, where a phone speaker is loudest and
 wind noise is weakest.
@@ -130,6 +131,23 @@ there is no honest way to know when a distance will be reached.
 
 Toggles, volume, and a test button for each cue live in the dev panel; the
 header has a mute.
+
+### Targets and tolerance
+
+A segment can carry an optional goal pace in min/mile, set in the builder. The
+tolerance around it is one setting for the whole workout, ±5 s/mile by default.
+
+The ride screen shows the goal and the verdict in words — ON PACE, EASE UP,
+PICK IT UP — with color alongside, never carrying the meaning alone. With no
+pace reading at all it says NO PACE rather than claiming you're on it.
+
+A warning needs the pace outside the band for five continuous seconds, and
+repeats at most every twenty, so drifting over the line and back is silent.
+Crossing from too fast to too slow restarts the five seconds rather than
+inheriting them. The finish table gains a `vs goal` column, signed in seconds.
+
+Targets are optional on `SegmentDef`, so every workout already in IndexedDB
+keeps loading untouched — no migration.
 
 ### Spoken cues
 
@@ -144,6 +162,7 @@ cleared on every return to visible.
 | segment boundary | the split that closed, then the segment starting — "30 seconds, 7 30 pace" / "On 2" |
 | manual lap | the lap's split and pace |
 | mile split, free runs | "Mile 1, 7 40" |
+| off target | "Ease up" or "Pick it up", after the falling beep |
 
 Numbers are spoken the way a person says them: 8:04 becomes "8 oh 4", not
 "eight colon zero four". Splits truncate to match the clock on screen, and a

@@ -311,6 +311,11 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
               on={ride.audio.boundary}
               onChange={(v) => ride.applyAudio({ ...ride.audio, boundary: v })}
             />
+            <Toggle
+              label="Off target"
+              on={ride.audio.offTarget}
+              onChange={(v) => ride.applyAudio({ ...ride.audio, offTarget: v })}
+            />
           </div>
           <Slider
             label="Volume"
@@ -322,16 +327,36 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
             format={(v) => `${Math.round(v * 100)}%`}
           />
           <div className="mt-1 flex flex-wrap gap-2">
-            {(['warning', 'countdown', 'boundary', 'lap', 'mile'] as const).map((c) => (
+            {(['warning', 'countdown', 'boundary', 'lap', 'mile', 'offTarget'] as const).map((c) => (
               <button
                 key={c}
                 onClick={() => ride.previewCue(c)}
                 className="flex-1 rounded-lg border border-line py-2 text-sm font-bold text-ink"
               >
-                Test {c === 'warning' ? '10s' : c === 'countdown' ? '3-2-1' : c}
+                Test {c === 'warning' ? '10s' : c === 'countdown' ? '3-2-1' : c === 'offTarget' ? 'off target' : c}
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="border-t border-line py-3">
+          <h3 className="mb-1 text-xs font-bold tracking-widest text-muted uppercase">
+            Pace tolerance
+          </h3>
+          <p className="mb-1 text-xs text-muted">
+            How far off a segment's goal pace counts as off target. One band for
+            the whole workout. A warning needs five continuous seconds outside
+            it, and repeats at most every twenty.
+          </p>
+          <Slider
+            label="Band"
+            value={ride.toleranceSec}
+            min={2}
+            max={30}
+            step={1}
+            onChange={ride.setToleranceSec}
+            format={(v) => `± ${v} s/mi`}
+          />
         </section>
 
         <section className="border-t border-line py-3">
