@@ -6,7 +6,8 @@ runs carrying it instead. The phone is the entire system — no watch, no sensor
 Full requirements are in `pace-app-spec.md`, which is the source of truth for
 scope. `README.md` tracks what is actually built.
 
-Active work plan: see PATCH-PLAN.md in the repo root.
+PATCH-PLAN.md in the repo root is **complete** — all four steps done and
+ticked. It is kept as a record, not as a queue. Nothing is waiting in it.
 
 **Reliability beats features.** A lost session, a stopwatch that drifts after a
 notification, or a screen that sleeps mid-workout makes the app useless. Prefer
@@ -93,6 +94,8 @@ These were each found by a bug on a real ride. Don't undo them casually.
   run under Node's strip-only type stripping, which rejects them.
 - Comments explain *why*, especially where a defensive check encodes a real
   failure seen on a ride.
+- **US spelling**, in code, comments, docs and anything on screen. A sub-mile
+  countdown once shipped reading "metres to go".
 
 ## Testing
 
@@ -127,11 +130,48 @@ The app is installed to Sam's home screen, so a bad deploy reaches a real phone.
 
 ## Where things stand
 
-Built: steps 1–6 of the spec's build order, plus beeps. Verified against two
-real rides.
+The spec's build order is complete: GPS and the ride screen, wake lock and
+offline install, laps and segments, beeps and spoken cues, preset workouts with
+targets and tolerance bands, the workout builder, and history with CSV export.
 
-Open, roughly in priority order:
-- Kilometers — all pace maths and displays currently assume miles
-- A real settings screen; audio and wake-lock toggles currently live in the dev
-  panel and are not persisted across launches
-- Before sharing widely: hide the DEV button, add onboarding, workout share-links
+### Not yet verified on a phone
+
+Everything below is desk-verified only. It is the first thing to ask Sam about,
+and the reason to be careful before piling more on top.
+
+- **Rotation.** Portrait to landscape and back. This was got wrong twice; the
+  shell is now `position: fixed; inset: 0` and a desktop check is not proof.
+- **The DEV → Screen readout.** What iOS actually reports for safe-area insets,
+  and whether it says *installed* or *browser tab*. If the top inset reads 0 in
+  the installed app, the 6px of breathing room above it is masking a different
+  cause.
+- **The stale-GPS badge** under real tree cover. It cannot be triggered at a
+  desk any more, because hiding DEV mid-session removed the way to inject a
+  dropout.
+- **Spoken cues.** iOS speech differs from desktop — it goes quiet after
+  interruptions, and voice, rate and timing may all feel wrong outdoors.
+- **Targets.** Whether ±5 s/mile is the right band, and whether a warning every
+  twenty seconds helps or nags, is a question only a real rep answers.
+
+### Still open
+
+- Kilometers — all pace math and displays assume miles. **Explicitly deferred**;
+  Sam does not want it yet. Keep it as a future option.
+- A real settings screen. Audio, speech, tolerance and wake-lock toggles live in
+  the dev panel and are not persisted across launches.
+- Before sharing widely: hide the DEV button, add onboarding, workout
+  share-links.
+
+## Picking this up in a fresh session
+
+The repo carries everything: this file loads automatically, the commit messages
+carry the reasoning behind each decision, and `npm test` covers the engine,
+segments, workouts, speech, off-target and history.
+
+What the repo cannot carry is the GPS logs — they are location data about a
+child's routes and stay gitignored. Sam exports them from a ride's detail
+screen in History; drop one into `tests/logs/` and replay it with
+`npm run test:replay -- tests/logs/<file>.json`.
+
+Start by asking how the last ride went, and check the unverified list above
+before building anything new.
