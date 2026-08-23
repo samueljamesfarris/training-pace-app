@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { DevPanel } from './components/DevPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Guide } from './components/Guide';
 import { History } from './components/History';
 import { FinishCard } from './components/FinishCard';
 import { ResumePrompt } from './components/ResumePrompt';
 import { RideScreen } from './components/RideScreen';
 import { SharedWorkout, adoptWorkout } from './components/SharedWorkout';
 import { WorkoutPicker } from './components/WorkoutPicker';
+import { loadDevEnabled, saveDevEnabled } from './lib/devMode';
+import { guideSeen } from './lib/onboarding';
 import { DECODE_MESSAGE, decodeWorkout } from './lib/share';
 import type { WorkoutDef } from './lib/workouts';
 import { applyUpdate, registerServiceWorker } from './lib/serviceWorker';
@@ -29,6 +32,9 @@ function AppContents() {
   /** A workout that arrived in a link, waiting to be accepted or dismissed. */
   const [shared, setShared] = useState<WorkoutDef | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [devEnabled, setDevEnabled] = useState(loadDevEnabled);
+  const [devNote, setDevNote] = useState<string | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   useEffect(() => {
     registerServiceWorker(() => setUpdateReady(true));
@@ -40,14 +46,23 @@ function AppContents() {
    * is cleared either way — a reload should not re-offer a workout that was
    * already declined, and the payload has no business sitting in the address
    * bar afterwards.
+   *
+   * hashchange matters as much as the mount read: a link tapped while the app
+   * is already open is a same-document navigation, so the page never reloads
+   * and this is the only notice we get.
    */
   useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash.includes('w=')) return;
-    const result = decodeWorkout(hash);
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-    if (result.ok) setShared(result.workout);
-    else setShareError(DECODE_MESSAGE[result.reason]);
+    const readLink = () => {
+      const hash = window.location.hash;
+      if (!hash.includes('w=')) return;
+      const result = decodeWorkout(hash);
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      if (result.ok) setShared(result.workout);
+      else setShareError(DECODE_MESSAGE[result.reason]);
+    };
+    readLink();
+    window.addEventListener('hashchange', readLink);
+    return () => window.removeEventListener('hashchange', readLink);
   }, []);
 
   /*
@@ -66,19 +81,42 @@ function AppContents() {
     };
   }, []);
 
+  // First launch gets the guide. Not on top of a session being offered back:
+  // whatever is already underway is the more urgent question.
+  useEffect(() => {
+    if (!guideSeen() && !ride.session && !ride.resumable) setGuideOpen(true);
+    // Once only, on mount — reopening it later is what "How it works" is for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function toggleDev() {
+    const next = !devEnabled;
+    setDevEnabled(next);
+    saveDevEnabled(next);
+    if (!next) setDevOpen(false);
+    setDevNote(next ? 'Dev tools on' : 'Dev tools off');
+    window.setTimeout(() => setDevNote(null), 2000);
+  }
+
   const running = ride.session?.status === 'running';
 
   return (
     <div className="relative h-full overflow-hidden">
       <RideScreen
         ride={ride}
+        devEnabled={devEnabled}
+        onToggleDev={toggleDev}
         onOpenDev={() => setDevOpen(true)}
         onOpenPicker={() => setPickerOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}
+        onOpenGuide={() => setGuideOpen(true)}
       />
       <FinishCard ride={ride} onOpenHistory={() => setHistoryOpen(true)} />
       {pickerOpen && <WorkoutPicker ride={ride} onClose={() => setPickerOpen(false)} />}
-      {devOpen && <DevPanel ride={ride} onClose={() => setDevOpen(false)} />}
+      {devOpen && (
+        <DevPanel ride={ride} onClose={() => setDevOpen(false)} onHideDev={toggleDev} />
+      )}
+      {guideOpen && <Guide onClose={() => setGuideOpen(false)} />}
       {historyOpen && <History onClose={() => setHistoryOpen(false)} />}
       <ResumePrompt ride={ride} />
       {shared && (
@@ -91,6 +129,14 @@ function AppContents() {
           }}
           onDismiss={() => setShared(null)}
         />
+      )}
+
+      {devNote && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-24 z-40 flex justify-center">
+          <span className="rounded-full bg-raised px-4 py-2 text-sm font-black text-ink shadow-lg">
+            {devNote}
+          </span>
+        </div>
       )}
 
       {shareError && (

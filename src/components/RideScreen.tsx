@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ACCURACY_GATE_M } from '../lib/gpsEngine';
 import { completedSegments, currentIndex } from '../lib/segments';
 import { formatPaceSeconds as fmtPace } from '../lib/units';
@@ -12,6 +12,7 @@ import {
   formatSpeed,
   mpsToMph,
 } from '../lib/units';
+import { DEV_REVEAL_TAPS, DEV_REVEAL_WINDOW_MS } from '../lib/devMode';
 import { isIndoor } from '../lib/types';
 import type { Ride } from '../lib/useRide';
 
@@ -152,19 +153,42 @@ function GpsChip({ ride }: { ride: Ride }) {
 
 export function RideScreen({
   ride,
+  devEnabled,
+  onToggleDev,
   onOpenDev,
   onOpenPicker,
   onOpenHistory,
+  onOpenGuide,
 }: {
   ride: Ride;
+  /** Whether the dev button is on offer at all. */
+  devEnabled: boolean;
+  /** The hidden gesture fired: reveal the button, or hide it again. */
+  onToggleDev: () => void;
   onOpenDev: () => void;
   onOpenPicker: () => void;
   onOpenHistory: () => void;
+  onOpenGuide: () => void;
 }) {
   const { gps, session, elapsed } = ride;
   const [finishArmed, setFinishArmed] = useState(false);
   const [armSecondsLeft, setArmSecondsLeft] = useState(0);
   const [startArmed, setStartArmed] = useState(false);
+  /*
+   * The way back to the dev tools once the button is hidden. The status chip
+   * is the right place for it: it is the one thing in the header that does
+   * nothing when tapped, so a stray thumb costs nothing and a deliberate five
+   * taps can't be mistaken for anything else.
+   */
+  const devTaps = useRef<number[]>([]);
+  function countDevTap() {
+    const t = Date.now();
+    devTaps.current = [...devTaps.current.filter((x) => t - x < DEV_REVEAL_WINDOW_MS), t];
+    if (devTaps.current.length >= DEV_REVEAL_TAPS) {
+      devTaps.current = [];
+      onToggleDev();
+    }
+  }
 
   // Without a usable fix the first segment's distance starts from a position
   // that isn't known yet, so START asks once. With a fix it stays one tap, and
@@ -218,7 +242,9 @@ export function RideScreen({
   return (
     <div className="relative flex h-full flex-col bg-surface text-ink">
       <header className="flex items-center justify-between px-4 py-2">
-        {indoor ? <IndoorChip /> : <GpsChip ride={ride} />}
+        <div onClick={countDevTap}>
+          {indoor ? <IndoorChip /> : <GpsChip ride={ride} />}
+        </div>
         <div className="flex items-center gap-3">
           {session && (
             <span className="text-xs font-bold tracking-widest text-muted uppercase">
@@ -241,7 +267,7 @@ export function RideScreen({
           >
             {ride.theme === 'dark' ? 'NIGHT' : 'DAY'}
           </button>
-          {!sessionLive && (
+          {devEnabled && !sessionLive && (
             <button onClick={onOpenDev} className={`${HEADER_BUTTON} border-line text-muted`}>
               DEV
             </button>
@@ -402,7 +428,13 @@ export function RideScreen({
       <footer className="p-3">
         {!session && (
           <>
-            <div className="mb-2 flex justify-end">
+            <div className="mb-2 flex justify-end gap-1">
+              <button
+                onClick={onOpenGuide}
+                className="rounded-lg px-3 py-2 text-sm font-bold text-muted"
+              >
+                How it works
+              </button>
               <button
                 onClick={onOpenHistory}
                 className="rounded-lg px-3 py-2 text-sm font-bold text-muted underline-offset-4"

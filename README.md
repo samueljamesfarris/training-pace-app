@@ -46,6 +46,43 @@ The mode is recorded on the session, so a resumed treadmill session stays one,
 and history knows why a ride has no distance. Choosing a source in the dev
 panel switches back to outdoor, since asking for a source is asking to measure.
 
+### First launch, and the guide
+
+A first launch opens a five-page guide: what the app is, why it wants to be
+installed to the home screen rather than left in a tab, outdoor versus
+treadmill, what the four buttons do, and what `--:--` means. It is skippable,
+it only opens itself once, and "How it works" on the home screen brings it
+back. The stored flag is the guide's version, so a later rewrite can show
+itself again to someone who read the old one.
+
+### Sharing a workout
+
+Every workout card has Share, which builds a link carrying the whole workout
+in the URL's fragment — no server, no account, and a link that still opens an
+installed app offline. The longest preset comes to under 600 characters, so it
+sends in a text message. Sharing goes through the platform share sheet where
+there is one, then the clipboard, then the raw link on screen.
+
+Opening a link *offers* the workout rather than installing it, and accepting
+assigns a fresh id so an import can never overwrite something already in the
+library. The picker also takes a pasted link, which on iOS is the path that
+matters: tapping a shared link opens Safari, not the app on the home screen,
+and the two do not share storage.
+
+A link is untrusted input that the app then runs, so `src/lib/share.ts`
+validates it against explicit limits rather than trusting it, and rejects
+anything out of range instead of clamping — importing a workout that differs
+from the one that was sent would be worse than importing none.
+
+### Dev tools
+
+The DEV button is hidden. Five taps on the status chip in the header reveal it
+(and five more, or "Hide DEV" in the panel, put it away); `?dev=1` does the
+same in a browser tab. The choice is remembered. It is hidden rather than
+compiled out because the panel is exactly as useful on the real phone as at
+the desk, and a build flag would put it out of reach where the interesting
+bugs are.
+
 ### Theme
 
 Night is the default, since most sessions start before sunrise: near-black

@@ -59,6 +59,13 @@ being correct and dull over clever.
 - `src/lib/mode.ts` — indoor or outdoor, remembered between launches. Indoor is
   the treadmill: no position source is ever started, and nothing derived from
   distance is displayed or exported. `isIndoor` in `types.ts` is the one test.
+- `src/lib/share.ts` — workouts as links. The whole workout rides in the URL
+  fragment, so there is no server and no account; the decoder treats a link as
+  untrusted input and validates it against `LIMITS` rather than trusting it.
+- `src/lib/devMode.ts` — whether the DEV button is on offer. Hidden by default,
+  revealed by five taps on the status chip or `?dev=1`, and remembered.
+- `src/lib/onboarding.ts` — whether the guide has been read, stored as the
+  version it was read at so a rewrite can show itself again.
 - `src/lib/db.ts` — IndexedDB. Every call is best-effort and never throws.
 
 ## Hard-won details
@@ -118,6 +125,10 @@ Replaying a real exported GPS log is the highest-value check:
 npm run test:replay -- tests/logs/<file>.json
 ```
 
+A shared link is untrusted input that the app then runs, so `tests/share.test.ts`
+is adversarial on purpose: malformed payloads, out-of-range values, and the
+repeat-count expansion that a size cap alone would not catch. Keep it that way.
+
 **Real GPS logs are location data about a child's running routes, and this repo
 is public — `tests/logs/` is gitignored. Keep it that way.** Ask before
 committing any log or screenshot containing coordinates.
@@ -168,8 +179,11 @@ and the reason to be careful before piling more on top.
   Sam does not want it yet. Keep it as a future option.
 - A real settings screen. Audio, speech, tolerance and wake-lock toggles live in
   the dev panel and are not persisted across launches.
-- Before sharing widely: hide the DEV button, add onboarding, workout
-  share-links.
+- The three things that gated sharing it — the DEV button, onboarding and
+  workout share-links — are built, and none of them has been used by anyone
+  but us. What a first-time user actually does with the guide, and whether a
+  link survives the trip through Messages on a real phone, are the open
+  questions.
 
 ## Picking this up in a fresh session
 

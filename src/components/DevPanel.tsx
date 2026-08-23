@@ -109,7 +109,16 @@ function Toggle({
   );
 }
 
-export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void }) {
+export function DevPanel({
+  ride,
+  onClose,
+  onHideDev,
+}: {
+  ride: Ride;
+  onClose: () => void;
+  /** Put the button away again; five taps on the status chip brings it back. */
+  onHideDev: () => void;
+}) {
   const { gps, simConfig, setSimConfig, sourceKind, setSourceKind } = ride;
   const fileRef = useRef<HTMLInputElement>(null);
   const screen = useScreenFacts();
@@ -159,12 +168,20 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
     <div className="absolute inset-0 z-20 flex flex-col bg-card">
       <header className="flex items-center justify-between border-b border-line px-4 py-3">
         <h2 className="text-lg font-black">Dev panel</h2>
-        <button
-          onClick={onClose}
-          className="rounded-lg bg-next px-4 py-2 text-sm font-bold text-next-ink"
-        >
-          Close
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onHideDev}
+            className="rounded-lg border-2 border-line px-3 py-2 text-sm font-bold text-muted"
+          >
+            Hide DEV
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-lg bg-next px-4 py-2 text-sm font-bold text-next-ink"
+          >
+            Close
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 pb-8">
