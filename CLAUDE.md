@@ -31,7 +31,10 @@ being correct and dull over clever.
 4. **Audio never takes the session down.** Same for IndexedDB — persistence
    failures surface as a banner and the workout continues.
 5. **The service worker never calls `skipWaiting()` on its own.** Swapping
-   bundles mid-workout is the one thing this app must not do.
+   bundles mid-workout is the one thing this app must not do. It also only
+   reloads on `controllerchange` when a controller was already there: a first
+   install claims a page that is *already* running the newest code, and
+   reloading it threw away the workout link that page had just opened.
 
 ## Architecture
 
@@ -124,6 +127,12 @@ Replaying a real exported GPS log is the highest-value check:
 ```bash
 npm run test:replay -- tests/logs/<file>.json
 ```
+
+**A workout link has to be tested on a browser that has never opened the app.**
+The first visit is the one that installs the service worker, and it behaves
+differently from every subsequent one — that difference silently ate the whole
+import for exactly the people a link is sent to. A warm reload proves nothing
+here; use a fresh browser profile whose *first* navigation is the link.
 
 A shared link is untrusted input that the app then runs, so `tests/share.test.ts`
 is adversarial on purpose: malformed payloads, out-of-range values, and the

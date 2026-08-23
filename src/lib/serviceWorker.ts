@@ -32,9 +32,25 @@ export function registerServiceWorker(onUpdateReady: () => void) {
       })
       .catch((e) => console.warn('[sw] registration failed', e));
 
+    /*
+     * Reload only when an *update* takes over, never on a first install.
+     *
+     * A first registration ends with the worker calling clients.claim(), which
+     * fires controllerchange on a page that is already running the newest code
+     * — there is nothing to reload for. Reloading anyway cost a real feature:
+     * a workout link opened in a browser that had never seen the app booted,
+     * read the link, cleared the fragment, and was then reloaded onto the bare
+     * URL, so the shared workout vanished before it could be accepted. That is
+     * every first-time visitor tapping a shared link.
+     *
+     * A controller present at registration time means this page is already
+     * controlled, so a later controllerchange is a new version taking over,
+     * which is the only case that needs the reload.
+     */
+    const hadController = !!navigator.serviceWorker.controller;
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading) return;
+      if (!hadController || reloading) return;
       reloading = true;
       window.location.reload();
     });

@@ -240,6 +240,60 @@ export function decodeWorkout(input: string): DecodeResult {
   return { ok: true, workout };
 }
 
+/**
+ * Whether the app is running as an installed app rather than a browser tab.
+ *
+ * It matters for sharing: on iOS a link tapped in Messages opens Safari, which
+ * keeps its own storage, so a workout accepted there never reaches the app on
+ * the home screen. The prompt says so rather than letting the import look like
+ * it worked and then be missing at the track.
+ */
+export function isInstalledApp(): boolean {
+  try {
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (navigator as { standalone?: boolean }).standalone === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+/*
+ * An offered import, parked where a reload can't lose it.
+ *
+ * The fragment is cleared the moment it is read, so between that and the tap
+ * that accepts it, the only record of the workout is React state — and a
+ * service worker update takes the page out from under it. sessionStorage is
+ * the right scope: it survives the reload and dies with the tab, so an import
+ * nobody answered doesn't reappear next week.
+ */
+const PENDING_KEY = 'pace-pending-link';
+
+export function savePendingLink(raw: string) {
+  try {
+    sessionStorage.setItem(PENDING_KEY, raw);
+  } catch {
+    // Storage blocked: the import still works, it just won't survive a reload.
+  }
+}
+
+export function loadPendingLink(): string | null {
+  try {
+    return sessionStorage.getItem(PENDING_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingLink() {
+  try {
+    sessionStorage.removeItem(PENDING_KEY);
+  } catch {
+    // Nothing to do; a stale entry dies with the tab anyway.
+  }
+}
+
 /** Wording for a failed import, in the app's own voice. */
 export const DECODE_MESSAGE: Record<DecodeFailure, string> = {
   'not-a-link': "That doesn't look like a workout link.",

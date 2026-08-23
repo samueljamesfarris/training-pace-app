@@ -10,7 +10,13 @@ import { SharedWorkout, adoptWorkout } from './components/SharedWorkout';
 import { WorkoutPicker } from './components/WorkoutPicker';
 import { loadDevEnabled, saveDevEnabled } from './lib/devMode';
 import { guideSeen } from './lib/onboarding';
-import { DECODE_MESSAGE, decodeWorkout } from './lib/share';
+import {
+  clearPendingLink,
+  DECODE_MESSAGE,
+  decodeWorkout,
+  loadPendingLink,
+  savePendingLink,
+} from './lib/share';
 import type { WorkoutDef } from './lib/workouts';
 import { applyUpdate, registerServiceWorker } from './lib/serviceWorker';
 import { useRide } from './lib/useRide';
@@ -52,14 +58,31 @@ function AppContents() {
    * and this is the only notice we get.
    */
   useEffect(() => {
+    const offer = (raw: string) => {
+      const result = decodeWorkout(raw);
+      if (result.ok) {
+        setShared(result.workout);
+        // Park it: the fragment is about to be cleared, and until this is
+        // accepted or declined the workout lives nowhere else.
+        savePendingLink(raw);
+      } else {
+        setShareError(DECODE_MESSAGE[result.reason]);
+        clearPendingLink();
+      }
+    };
+
     const readLink = () => {
       const hash = window.location.hash;
-      if (!hash.includes('w=')) return;
-      const result = decodeWorkout(hash);
-      history.replaceState(null, '', window.location.pathname + window.location.search);
-      if (result.ok) setShared(result.workout);
-      else setShareError(DECODE_MESSAGE[result.reason]);
+      if (hash.includes('w=')) {
+        offer(hash);
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+        return;
+      }
+      // No fragment, but an offer may have survived a reload.
+      const carried = loadPendingLink();
+      if (carried) offer(carried);
     };
+
     readLink();
     window.addEventListener('hashchange', readLink);
     return () => window.removeEventListener('hashchange', readLink);
@@ -81,13 +104,22 @@ function AppContents() {
     };
   }, []);
 
-  // First launch gets the guide. Not on top of a session being offered back:
-  // whatever is already underway is the more urgent question.
+  /*
+   * First launch gets the guide, but it queues behind anything more urgent: a
+   * session being offered back, and a workout link. Someone who taps a shared
+   * link opened the app *for that workout*, and stacking two full-screen
+   * prompts left DOM order deciding which one they saw. The guide follows once
+   * the import is answered, which is also when it makes more sense.
+   */
   useEffect(() => {
+    // Asked of the URL and the parked offer, not of React state: on the first
+    // render the link has been read but `shared` has not been committed yet,
+    // which is exactly the render where the guide would open underneath it.
+    const linkPending =
+      shared != null || window.location.hash.includes('w=') || loadPendingLink() != null;
+    if (linkPending) return;
     if (!guideSeen() && !ride.session && !ride.resumable) setGuideOpen(true);
-    // Once only, on mount — reopening it later is what "How it works" is for.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shared, ride.session, ride.resumable]);
 
   function toggleDev() {
     const next = !devEnabled;
@@ -125,9 +157,13 @@ function AppContents() {
           onAdd={() => {
             const w = adoptWorkout(shared);
             void ride.saveWorkout(w).then((saved) => ride.setSelectedWorkout(saved));
+            clearPendingLink();
             setShared(null);
           }}
-          onDismiss={() => setShared(null)}
+          onDismiss={() => {
+            clearPendingLink();
+            setShared(null);
+          }}
         />
       )}
 
