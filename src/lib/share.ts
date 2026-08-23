@@ -259,6 +259,32 @@ export function isInstalledApp(): boolean {
   }
 }
 
+/**
+ * Whether this is an iPhone or iPad.
+ *
+ * Sniffing the agent string is a poor tool and this is the one place it earns
+ * its keep: the consequence being described — a home-screen app that keeps its
+ * own storage, separate from every browser on the device — is specific to iOS,
+ * and saying it on Android, where an installed app and the browser share
+ * storage and the import simply works, would be a false alarm. Wrong either
+ * way it only changes the wording of a hint, never what the app does.
+ *
+ * Not a Safari check: on iOS every browser is WebKit underneath and the split
+ * is the same whether the link opened in Safari, Chrome or anything else.
+ */
+export function isIOS(): boolean {
+  try {
+    const ua = navigator.userAgent;
+    return (
+      /iPhone|iPad|iPod/.test(ua) ||
+      // iPadOS reports itself as a Mac; the touch points give it away.
+      (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /*
  * An offered import, parked where a reload can't lose it.
  *

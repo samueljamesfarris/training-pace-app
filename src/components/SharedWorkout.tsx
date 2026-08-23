@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MILE, newId, plannedMeters, plannedSeconds, resolveWorkout, type WorkoutDef } from '../lib/workouts';
-import { isInstalledApp, workoutLink } from '../lib/share';
+import { isInstalledApp, isIOS, workoutLink } from '../lib/share';
 import { formatClock } from '../lib/units';
 import { segmentChipLabel } from './WorkoutPicker';
 
@@ -25,11 +25,19 @@ export function SharedWorkout({
   const secs = plannedSeconds(resolved.segments);
   const meters = plannedMeters(resolved.segments);
   const [copied, setCopied] = useState(false);
-  // A link tapped in Messages lands in the browser, and on iOS the browser and
-  // the installed app keep separate storage — so a workout added here is not
-  // the one he will have at the track tomorrow. Say it while it can still be
-  // acted on, and hand over the link to paste.
+  /*
+   * A link tapped in a message lands in a browser, whichever one is default.
+   * On iOS the home-screen app keeps storage separate from every browser on
+   * the device, so a workout added here is simply not the one they will have
+   * at the track — and the only way across is to carry the link over by hand.
+   *
+   * So the page says so, with the steps and the link ready to copy, rather
+   * than sending them back to the message to hunt for it. Elsewhere the two
+   * share storage and the import just works, so it is a soft aside instead of
+   * a warning.
+   */
   const inBrowser = !isInstalledApp();
+  const separateStorage = inBrowser && isIOS();
 
   async function copyForApp() {
     const url = workoutLink(workout, window.location.href);
@@ -57,21 +65,53 @@ export function SharedWorkout({
           <h2 className="mt-1 text-center text-3xl font-black">{workout.name}</h2>
 
           {inBrowser && (
-            <div className="mt-4 rounded-2xl bg-raised p-3">
-              <p className="text-sm font-bold text-ink">
-                You’re in the browser. If you use Pace from your home screen, adding it
-                here won’t put it there — they keep separate storage.
+            <div className="mt-4 rounded-2xl bg-raised p-4">
+              <p className="text-base font-black text-ink">
+                {separateStorage
+                  ? 'Using Pace from your home screen? Add it there instead.'
+                  : 'Using Pace from your home screen?'}
               </p>
               <p className="mt-1 text-sm text-muted">
-                Copy the link, open Pace from the home screen, and use “Paste a workout
-                link” under Workout.
+                {separateStorage
+                  ? 'This is the browser, and on iPhone the installed app keeps its own workouts — adding it here won’t put it there.'
+                  : 'You can add it here, or carry it across with the same three steps.'}
               </p>
-              <button
-                onClick={() => void copyForApp()}
-                className="mt-2 h-[44px] w-full rounded-xl border-2 border-line text-sm font-bold text-ink"
-              >
-                {copied ? 'Link copied' : 'Copy link for the app'}
-              </button>
+
+              <ol className="mt-3 flex flex-col gap-2">
+                <li className="flex items-center gap-3">
+                  <Step n={1} done={copied} />
+                  <button
+                    onClick={() => void copyForApp()}
+                    className={`h-[48px] flex-1 rounded-xl text-sm font-black ${
+                      copied
+                        ? 'border-2 border-line text-muted'
+                        : 'bg-next text-next-ink'
+                    }`}
+                  >
+                    {copied ? 'Link copied' : 'Copy this link'}
+                  </button>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Step n={2} done={false} />
+                  <span className="flex-1 text-sm font-bold text-ink">
+                    Open Pace from your home screen
+                  </span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Step n={3} done={false} />
+                  <span className="flex-1 text-sm font-bold text-ink">
+                    Tap CHANGE under Workout, then “Paste a workout link”
+                  </span>
+                </li>
+              </ol>
+
+              {/* Nobody has to go back to the message and fish the link out:
+                  it is on the clipboard from step one. */}
+              {copied && (
+                <p className="mt-3 text-sm font-semibold text-ink">
+                  Copied. Open Pace and paste it — no need to go back to the message.
+                </p>
+              )}
             </div>
           )}
 
@@ -130,6 +170,18 @@ export function SharedWorkout({
         </div>
       </div>
     </div>
+  );
+}
+
+function Step({ n, done }: { n: number; done: boolean }) {
+  return (
+    <span
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+        done ? 'bg-go text-go-ink' : 'bg-card text-muted'
+      }`}
+    >
+      {done ? '✓' : n}
+    </span>
   );
 }
 

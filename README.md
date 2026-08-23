@@ -65,9 +65,18 @@ there is one, then the clipboard, then the raw link on screen.
 
 Opening a link *offers* the workout rather than installing it, and accepting
 assigns a fresh id so an import can never overwrite something already in the
-library. The picker also takes a pasted link, which on iOS is the path that
-matters: tapping a shared link opens Safari, not the app on the home screen,
-and the two do not share storage.
+library.
+
+On iOS that offer arrives in a browser, because a link tapped in a message
+opens the default browser rather than the home-screen app — and the home-screen
+app keeps its own storage, so a workout added in the browser is not the one
+they will have at the track. (Which browser is default makes no difference:
+they are all WebKit underneath and all separate from the installed app.) So
+the page opened from a link spells out the three steps — copy the link, open
+Pace from the home screen, paste it under Workout → "Paste a workout link" —
+with the link put on the clipboard for them, rather than sending them back to
+the message to fish it out. Where storage is shared, which is everywhere else,
+the same block appears as a quiet aside instead of a warning.
 
 A link is untrusted input that the app then runs, so `src/lib/share.ts`
 validates it against explicit limits rather than trusting it, and rejects
