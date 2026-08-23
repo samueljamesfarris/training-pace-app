@@ -53,6 +53,14 @@ const HEADER_BUTTON =
   'inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border px-2 text-xs font-bold';
 
 /**
+ * The ride controls are a fixed three-up row, so each label has a third of the
+ * width whatever the state. min-w-0 lets a button shrink rather than push its
+ * neighbours out, and the column layout gives a two-line label somewhere to go.
+ */
+const CONTROL =
+  'flex h-[76px] min-w-0 flex-1 flex-col items-center justify-center rounded-2xl px-1 text-center leading-none';
+
+/**
  * The verdict on pace, in words. Color is carried alongside, never alone —
  * in direct sun on a bouncing mount, a color difference is not a signal.
  */
@@ -366,49 +374,64 @@ export function RideScreen({
         )}
 
         {session && session.status !== 'finished' && (
-          <div className="flex gap-2">
-            <button
-              onClick={running ? ride.pause : ride.resume}
-              className={`h-[76px] flex-1 rounded-2xl text-xl font-black tracking-wide ${
-                running ? 'bg-hold text-hold-ink' : 'bg-go text-go-ink'
-              }`}
-            >
-              {running ? 'PAUSE' : 'RESUME'}
-            </button>
+          <>
+            {/* Changing the workout is not one of the ride controls, and made
+                the row below a four-up: at that width every label wrapped
+                inside its own button — "CONFIRM 4" split across two lines. */}
             {paused && (
               <button
                 onClick={onOpenPicker}
-                className="h-[76px] flex-1 rounded-2xl border-2 border-line text-base font-bold text-ink active:bg-raised"
+                className="mb-2 h-[56px] w-full rounded-2xl border-2 border-line text-base font-bold text-ink active:bg-raised"
               >
-                WORKOUT
+                CHANGE WORKOUT
               </button>
             )}
-            <button
-              onClick={ride.nextSegment}
-              disabled={atLastSegment}
-              className="h-[76px] flex-1 rounded-2xl bg-next text-xl font-black tracking-wide text-next-ink active:opacity-80 disabled:opacity-30"
-            >
-              {workout ? 'NEXT' : 'LAP'}
-            </button>
-            <button
-              onClick={() => {
-                if (finishArmed) {
-                  setFinishArmed(false);
-                  ride.finish();
-                } else {
-                  setFinishArmed(true);
-                }
-              }}
-              className={`h-[76px] flex-1 rounded-2xl text-base font-black ${
-                finishArmed
-                  ? 'bg-stop text-stop-ink'
-                  : 'border-2 border-line text-ink active:bg-raised'
-              }`}
-            >
-              {finishArmed ? `CONFIRM ${armSecondsLeft}` : 'FINISH'}
-            </button>
-          </div>
+            <div className="flex gap-2">
+              <button
+                onClick={running ? ride.pause : ride.resume}
+                className={`${CONTROL} text-xl font-black tracking-wide ${
+                  running ? 'bg-hold text-hold-ink' : 'bg-go text-go-ink'
+                }`}
+              >
+                {running ? 'PAUSE' : 'RESUME'}
+              </button>
+              <button
+                onClick={ride.nextSegment}
+                disabled={atLastSegment}
+                className={`${CONTROL} bg-next text-xl font-black tracking-wide text-next-ink active:opacity-80 disabled:opacity-30`}
+              >
+                {workout ? 'NEXT' : 'LAP'}
+              </button>
+              <button
+                onClick={() => {
+                  if (finishArmed) {
+                    setFinishArmed(false);
+                    ride.finish();
+                  } else {
+                    setFinishArmed(true);
+                  }
+                }}
+                className={`${CONTROL} text-base font-black ${
+                  finishArmed
+                    ? 'bg-stop text-stop-ink'
+                    : 'border-2 border-line text-ink active:bg-raised'
+                }`}
+              >
+                {finishArmed ? (
+                  <>
+                    <span>CONFIRM</span>
+                    {/* On its own line: beside the word it pushed the label
+                        into a wrap on a narrow phone. */}
+                    <span className="mt-1 text-xs font-bold">{armSecondsLeft}s</span>
+                  </>
+                ) : (
+                  'FINISH'
+                )}
+              </button>
+            </div>
+          </>
         )}
+
       </footer>
 
       {paused && (

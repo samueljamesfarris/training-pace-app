@@ -83,85 +83,103 @@ export function FinishCard({
   }
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col justify-center bg-surface px-5">
-      <h2 className="mb-4 text-center text-3xl font-black">Session complete</h2>
-      <div className="grid grid-cols-2 gap-4 rounded-2xl bg-card p-5 shadow-sm">
-        <div>
-          <div className="text-4xl font-black">{formatClock(total)}</div>
-          <div className="text-xs font-bold tracking-widest text-muted uppercase">time</div>
-        </div>
-        <div>
-          <div className="text-4xl font-black">{formatMiles(ride.gps.distanceMeters)}</div>
-          <div className="text-xs font-bold tracking-widest text-muted uppercase">miles</div>
-        </div>
-        <div>
-          <div className="text-4xl font-black">{formatPace(avg)}</div>
-          <div className="text-xs font-bold tracking-widest text-muted uppercase">
-            avg pace
+    /*
+     * The summary scrolls, the actions never do. Centering the whole column in
+     * a fixed viewport put the buttons off the bottom edge as soon as the
+     * content grew — a long split table, an export note, or simply landscape —
+     * and with nothing scrollable there was no way to reach them.
+     */
+    <div className="absolute inset-0 z-30 flex flex-col bg-surface">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center">
+          <h2 className="mb-4 text-center text-3xl font-black">Session complete</h2>
+          <div className="grid grid-cols-2 gap-4 rounded-2xl bg-card p-5 shadow-sm">
+            <div>
+              <div className="text-4xl font-black">{formatClock(total)}</div>
+              <div className="text-xs font-bold tracking-widest text-muted uppercase">time</div>
+            </div>
+            <div>
+              <div className="text-4xl font-black">{formatMiles(ride.gps.distanceMeters)}</div>
+              <div className="text-xs font-bold tracking-widest text-muted uppercase">miles</div>
+            </div>
+            <div>
+              <div className="text-4xl font-black">{formatPace(avg)}</div>
+              <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                avg pace
+              </div>
+            </div>
+            <div>
+              <div className="text-4xl font-black">{formatSpeed(avg)}</div>
+              <div className="text-xs font-bold tracking-widest text-muted uppercase">
+                avg mph
+              </div>
+            </div>
           </div>
-        </div>
-        <div>
-          <div className="text-4xl font-black">{formatSpeed(avg)}</div>
-          <div className="text-xs font-bold tracking-widest text-muted uppercase">avg mph</div>
+
+          {segments.length > 1 && (
+            <div className="mt-4 rounded-2xl bg-card p-3">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[11px] tracking-widest text-muted uppercase">
+                    <th className="text-left font-bold">segment</th>
+                    <th className="text-right font-bold">time</th>
+                    <th className="text-right font-bold">dist</th>
+                    <th className="text-right font-bold">pace</th>
+                    {hasTargets && <th className="text-right font-bold">vs goal</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {segments.map((s) => (
+                    <tr key={s.index} className="border-t border-line">
+                      <td className="py-1 font-bold">{s.name}</td>
+                      <td className="py-1 text-right">{formatClock(s.durationMs)}</td>
+                      <td className="py-1 text-right">{formatMiles(s.distanceMeters)}</td>
+                      <td className="py-1 text-right font-bold">
+                        {formatPace(averageMph(s.distanceMeters, s.durationMs))}
+                      </td>
+                      {hasTargets && (
+                        <td className="py-1 text-right font-bold">{deltaFor(s)}</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="mt-3 text-center text-sm text-muted">
+            {ride.gps.fixCount} fixes · {ride.gps.rejectedCount} rejected on accuracy ·{' '}
+            {ride.gps.dropoutCount} dropout gaps
+          </div>
+          {note && <div className="mt-2 text-center text-sm font-semibold">{note}</div>}
         </div>
       </div>
 
-      {segments.length > 1 && (
-        <div className="mt-4 max-h-[30vh] overflow-y-auto rounded-2xl bg-card p-3">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[11px] tracking-widest text-muted uppercase">
-                <th className="text-left font-bold">segment</th>
-                <th className="text-right font-bold">time</th>
-                <th className="text-right font-bold">dist</th>
-                <th className="text-right font-bold">pace</th>
-                {hasTargets && <th className="text-right font-bold">vs goal</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {segments.map((s) => (
-                <tr key={s.index} className="border-t border-line">
-                  <td className="py-1 font-bold">{s.name}</td>
-                  <td className="py-1 text-right">{formatClock(s.durationMs)}</td>
-                  <td className="py-1 text-right">{formatMiles(s.distanceMeters)}</td>
-                  <td className="py-1 text-right font-bold">
-                    {formatPace(averageMph(s.distanceMeters, s.durationMs))}
-                  </td>
-                  {hasTargets && (
-                    <td className="py-1 text-right font-bold">{deltaFor(s)}</td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Two secondary actions share a row so the whole bar fits a landscape
+          viewport without shrinking the labels. */}
+      <div className="shrink-0 px-5 pt-2 pb-3">
+        <div className="mx-auto flex w-full max-w-md flex-col gap-2">
+          <div className="flex gap-2">
+            <button
+              onClick={() => void exportLog()}
+              className="h-[56px] min-w-0 flex-1 rounded-2xl bg-next text-base font-bold text-next-ink"
+            >
+              Export raw log
+            </button>
+            <button
+              onClick={onOpenHistory}
+              className="h-[56px] min-w-0 flex-1 rounded-2xl border-2 border-line text-base font-bold text-ink"
+            >
+              History
+            </button>
+          </div>
+          <button
+            onClick={ride.clearSession}
+            className="h-[76px] rounded-2xl bg-go text-xl font-black text-go-ink"
+          >
+            RETURN HOME
+          </button>
         </div>
-      )}
-
-      <div className="mt-3 text-center text-sm text-muted">
-        {ride.gps.fixCount} fixes · {ride.gps.rejectedCount} rejected on accuracy ·{' '}
-        {ride.gps.dropoutCount} dropout gaps
-      </div>
-      {note && <div className="mt-2 text-center text-sm font-semibold">{note}</div>}
-
-      <div className="mt-6 flex flex-col gap-2">
-        <button
-          onClick={() => void exportLog()}
-          className="h-[64px] rounded-2xl bg-next text-lg font-bold text-next-ink"
-        >
-          Export raw GPS log (JSON)
-        </button>
-        <button
-          onClick={onOpenHistory}
-          className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
-        >
-          History &amp; export
-        </button>
-        <button
-          onClick={ride.clearSession}
-          className="h-[76px] rounded-2xl bg-go text-xl font-black text-go-ink"
-        >
-          NEW SESSION
-        </button>
       </div>
     </div>
   );
