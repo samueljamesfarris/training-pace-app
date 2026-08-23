@@ -5,7 +5,10 @@ import { History } from './components/History';
 import { FinishCard } from './components/FinishCard';
 import { ResumePrompt } from './components/ResumePrompt';
 import { RideScreen } from './components/RideScreen';
+import { SharedWorkout, adoptWorkout } from './components/SharedWorkout';
 import { WorkoutPicker } from './components/WorkoutPicker';
+import { DECODE_MESSAGE, decodeWorkout } from './lib/share';
+import type { WorkoutDef } from './lib/workouts';
 import { applyUpdate, registerServiceWorker } from './lib/serviceWorker';
 import { useRide } from './lib/useRide';
 
@@ -23,9 +26,28 @@ function AppContents() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);
+  /** A workout that arrived in a link, waiting to be accepted or dismissed. */
+  const [shared, setShared] = useState<WorkoutDef | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
     registerServiceWorker(() => setUpdateReady(true));
+  }, []);
+
+  /*
+   * A workout link carries the whole workout in the fragment, so opening one
+   * is the entire import: no server, no account, works offline. The fragment
+   * is cleared either way — a reload should not re-offer a workout that was
+   * already declined, and the payload has no business sitting in the address
+   * bar afterwards.
+   */
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.includes('w=')) return;
+    const result = decodeWorkout(hash);
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (result.ok) setShared(result.workout);
+    else setShareError(DECODE_MESSAGE[result.reason]);
   }, []);
 
   /*
@@ -59,6 +81,31 @@ function AppContents() {
       {devOpen && <DevPanel ride={ride} onClose={() => setDevOpen(false)} />}
       {historyOpen && <History onClose={() => setHistoryOpen(false)} />}
       <ResumePrompt ride={ride} />
+      {shared && (
+        <SharedWorkout
+          workout={shared}
+          onAdd={() => {
+            const w = adoptWorkout(shared);
+            void ride.saveWorkout(w).then((saved) => ride.setSelectedWorkout(saved));
+            setShared(null);
+          }}
+          onDismiss={() => setShared(null)}
+        />
+      )}
+
+      {shareError && (
+        <div className="absolute inset-x-0 bottom-0 z-30 p-3">
+          <div className="flex items-center gap-3 rounded-xl bg-raised px-4 py-3 shadow-lg">
+            <span className="flex-1 text-sm font-bold text-ink">{shareError}</span>
+            <button
+              onClick={() => setShareError(null)}
+              className="text-sm font-bold text-muted"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* An update is never applied mid-workout; while running this is a note,
           not a button, so a stray thumb can't reload the app under him. */}

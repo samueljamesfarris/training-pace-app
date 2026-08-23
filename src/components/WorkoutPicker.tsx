@@ -12,6 +12,8 @@ import {
   type WorkoutDef,
 } from '../lib/workouts';
 import { WorkoutBuilder } from './WorkoutBuilder';
+import { DECODE_MESSAGE, decodeWorkout, workoutLink } from '../lib/share';
+import { adoptWorkout } from './SharedWorkout';
 
 export function segmentChipLabel(s: SegmentDef): string {
   return s.end.type === 'time'
@@ -27,6 +29,7 @@ function WorkoutCard({
   onChoose,
   onEdit,
   onDuplicate,
+  onShare,
   duplicateLabel,
 }: {
   w: WorkoutDef;
@@ -34,6 +37,7 @@ function WorkoutCard({
   onChoose: () => void;
   onEdit?: () => void;
   onDuplicate: () => void;
+  onShare: () => void;
   duplicateLabel: string;
 }) {
   const resolved = resolveWorkout(w);
@@ -83,6 +87,9 @@ function WorkoutCard({
         <button onClick={onDuplicate} className="text-sm font-bold text-muted">
           {duplicateLabel}
         </button>
+        <button onClick={onShare} className="text-sm font-bold text-muted">
+          Share
+        </button>
       </div>
     </div>
   );
@@ -93,6 +100,44 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
   const [editing, setEditing] = useState<WorkoutDef | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  /** The paste box, which is how a link reaches an installed app. */
+  const [linkText, setLinkText] = useState<string | null>(null);
+
+  /**
+   * Hand the link to the platform. The share sheet is the point — that is what
+   * puts it into Messages — with the clipboard as the fallback and the raw
+   * link on screen as the last resort, so there is always some way to send it.
+   */
+  async function share(w: WorkoutDef) {
+    const url = workoutLink(w, window.location.href);
+    const text = `${w.name} — a workout for the pacing app`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: w.name, text, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setNote('Link copied.');
+    } catch (e) {
+      if ((e as { name?: string }).name === 'AbortError') return;
+      // Neither worked, so show it and let him copy it by hand.
+      setLinkText(url);
+    }
+  }
+
+  /** Import from a pasted link, the path an installed app has to use. */
+  function importPasted(text: string) {
+    const result = decodeWorkout(text);
+    if (!result.ok) {
+      setNote(DECODE_MESSAGE[result.reason]);
+      return;
+    }
+    void ride.saveWorkout(adoptWorkout(result.workout)).then((saved) => {
+      ride.setSelectedWorkout(saved);
+      setNote(`Added "${saved.name}".`);
+    });
+    setLinkText(null);
+  }
 
   // Paused mid-session, picking a workout replaces the one in progress rather
   // than arming the next session.
@@ -179,6 +224,43 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
           </div>
         </button>
 
+        {/* Tapping a shared link on iOS opens Safari, not the app installed on
+            the home screen, and the two do not share storage. Pasting the link
+            in here is how a workout actually reaches the installed app. */}
+        {linkText == null ? (
+          <button
+            onClick={() => setLinkText('')}
+            className="mb-3 w-full rounded-xl border-2 border-dashed border-line p-3 text-sm font-bold text-muted"
+          >
+            Paste a workout link
+          </button>
+        ) : (
+          <div className="mb-3 rounded-xl border-2 border-line p-3">
+            <textarea
+              value={linkText}
+              onChange={(e) => setLinkText(e.target.value)}
+              placeholder="Paste the link a friend sent you"
+              rows={3}
+              className="w-full rounded-lg border border-line bg-card p-2 text-sm break-all"
+            />
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => importPasted(linkText)}
+                disabled={linkText.trim() === ''}
+                className="flex-1 rounded-lg bg-go py-2 text-sm font-black text-go-ink disabled:opacity-40"
+              >
+                Add workout
+              </button>
+              <button
+                onClick={() => setLinkText(null)}
+                className="rounded-lg border-2 border-line px-4 py-2 text-sm font-bold text-muted"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {note && (
           <p className="mb-2 rounded-lg bg-raised px-3 py-2 text-sm font-semibold">{note}</p>
         )}
@@ -204,6 +286,7 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
             onDuplicate={() => {
               void ride.saveWorkout(copyWorkout(w)).then((saved) => setNote(`Copied to "${saved.name}"`));
             }}
+            onShare={() => void share(w)}
           />
         ))}
 
@@ -223,6 +306,7 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
               setIsNew(true);
               setEditing(copyWorkout(w));
             }}
+            onShare={() => void share(w)}
           />
         ))}
 
