@@ -91,11 +91,20 @@ Every overlay is `absolute inset-0` against the `relative h-full` wrapper in
 5. Enter 0.5 with mi selected. It stays 0.5 mi and does not flip to 804 m.
 6. No control is under the island or the home bar, portrait and landscape.
 
-> Found while checking 6, not fixed, out of Step 1's scope: the ride screen
-> already overflows in landscape independently of insets — the footer sits
-> ~291px below the fold at 812x375 with insets switched off entirely. The
-> hero's `29vw` sizing is the likely cause. Belongs with Step 3's ride screen
-> work, not here.
+> Phone-test follow-ups, all fixed in the Step 1 range:
+> - The header sat flush against the island, so #root's top inset now carries
+>   6px of breathing room past the bare `env()` value.
+> - Rotating to landscape and back left the document scrolled, stranding the
+>   header under the island. The app is a screen, not a document: html, body
+>   and #root are `overflow: hidden`, and the ride screen's `main` scrolls
+>   inside itself instead. That also brought the landscape controls back on
+>   screen — they were ~291px below the fold.
+> - Seconds showed a bare "0". Padding is back, but applied only at rest, never
+>   to what is being typed, which is what made "3045" possible before.
+>
+> Still open, and Step 3's to fix: the landscape hero is sized in `vw`, so the
+> numbers are far larger than the space allows and only fit because `main`
+> scrolls. Resizing the hero belongs with the ride screen work.
 
 ---
 

@@ -44,6 +44,11 @@ function SmallButton({
   );
 }
 
+/** Seconds read as a clock, so 5 shows as 05 — but only at rest, never mid-edit. */
+function padSeconds(s: number) {
+  return String(s).padStart(2, '0');
+}
+
 /**
  * Minutes + seconds, because a single field invites 90 meaning 1:30 or 0:90.
  *
@@ -60,7 +65,7 @@ function TimeInput({
   onChange: (s: number) => void;
 }) {
   const [minText, setMinText] = useState(() => String(Math.floor(seconds / 60)));
-  const [secText, setSecText] = useState(() => String(seconds % 60));
+  const [secText, setSecText] = useState(() => padSeconds(seconds % 60));
   // The last value this field sent up. Anything else arriving in `seconds` came
   // from outside, and only then may we overwrite what is being typed.
   const emitted = useRef(seconds);
@@ -69,7 +74,7 @@ function TimeInput({
     if (seconds === emitted.current) return;
     emitted.current = seconds;
     setMinText(String(Math.floor(seconds / 60)));
-    setSecText(String(seconds % 60));
+    setSecText(padSeconds(seconds % 60));
   }, [seconds]);
 
   function commit(mRaw: string, sRaw: string) {
@@ -85,7 +90,7 @@ function TimeInput({
   function normalise() {
     const total = commit(minText, secText);
     setMinText(String(Math.floor(total / 60)));
-    setSecText(String(total % 60));
+    setSecText(padSeconds(total % 60));
   }
 
   const field =
@@ -107,8 +112,9 @@ function TimeInput({
         className={field}
       />
       <span className="font-bold text-muted">:</span>
-      {/* No padStart here: a padded "030" is exactly what turned typing 45
-          into 3045. Zero padding belongs on read-only clocks, not inputs. */}
+      {/* Padding is applied when the field is at rest, never to what is being
+          typed — a padded "030" mid-edit is what turned typing 45 into 3045.
+          Local text plus select-on-focus is what makes this safe now. */}
       <input
         type="number"
         inputMode="numeric"

@@ -164,7 +164,10 @@ export function RideScreen({
         </div>
       )}
 
-      <main className="grid flex-1 grid-cols-1 content-center gap-2 px-3 landscape:grid-cols-2 landscape:items-center">
+      {/* min-h-0 lets this shrink inside the flex column, and the overflow is
+          its own — so in landscape the numbers scroll here while the header
+          and the controls stay put and reachable. */}
+      <main className="grid min-h-0 flex-1 grid-cols-1 content-center gap-2 overflow-y-auto px-3 landscape:grid-cols-2 landscape:items-center">
         {workout && session ? (
           <SegmentHero session={session} now={ride.now} distanceMeters={gps.distanceMeters} />
         ) : (

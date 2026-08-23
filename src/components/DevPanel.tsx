@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parseFixLog } from '../lib/sources';
 import { mpsToMph } from '../lib/units';
 import type { Ride, SourceKind } from '../lib/useRide';
@@ -48,6 +48,46 @@ function Slider({
   );
 }
 
+/**
+ * What iOS actually reports for the safe area. env() is 0 everywhere except a
+ * notched device with viewport-fit=cover, and 0 in Safari's tab UI even there,
+ * so reading it back is the only way to tell "the inset is applied" from "the
+ * inset is zero" when a header still looks crowded.
+ */
+function useScreenFacts() {
+  const [facts, setFacts] = useState({ insets: '—', mode: '—', viewport: '—' });
+  useEffect(() => {
+    const measure = () => {
+      const probe = document.createElement('div');
+      probe.style.cssText =
+        'position:fixed;visibility:hidden;pointer-events:none;' +
+        'padding:env(safe-area-inset-top) env(safe-area-inset-right) ' +
+        'env(safe-area-inset-bottom) env(safe-area-inset-left);';
+      document.body.appendChild(probe);
+      const cs = getComputedStyle(probe);
+      const px = (v: string) => Math.round(parseFloat(v) || 0);
+      const insets = `${px(cs.paddingTop)} ${px(cs.paddingRight)} ${px(cs.paddingBottom)} ${px(cs.paddingLeft)}`;
+      probe.remove();
+      const standalone =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (navigator as { standalone?: boolean }).standalone === true;
+      setFacts({
+        insets,
+        mode: standalone ? 'installed' : 'browser tab',
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+      });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+    };
+  }, []);
+  return facts;
+}
+
 function Toggle({
   label,
   on,
@@ -72,6 +112,7 @@ function Toggle({
 export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void }) {
   const { gps, simConfig, setSimConfig, sourceKind, setSourceKind } = ride;
   const fileRef = useRef<HTMLInputElement>(null);
+  const screen = useScreenFacts();
   const [note, setNote] = useState<string | null>(null);
 
   const sources: { key: SourceKind; label: string }[] = [
@@ -291,6 +332,15 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="border-t border-line py-3 text-sm">
+          <h3 className="mb-2 text-xs font-bold tracking-widest text-muted uppercase">
+            Screen
+          </h3>
+          <Row label="safe area t r b l" value={screen.insets} />
+          <Row label="launched as" value={screen.mode} />
+          <Row label="viewport" value={screen.viewport} />
         </section>
 
         <section className="border-t border-line py-3">

@@ -120,8 +120,23 @@ body,
  */
 #root {
   box-sizing: border-box;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  /* A few pixels past the bare inset: sitting flush against the island reads as
+     crowded on the phone, and its shadow bleeds a little below the safe edge. */
+  padding-top: calc(env(safe-area-inset-top) + 6px);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+/*
+ * The app is a screen, not a document: it must never scroll as a whole. Panels
+ * scroll inside themselves. Without this, rotating to landscape and back left
+ * the document scrolled down, which pushed the header up under the island.
+ */
+html,
+body,
+#root {
+  overflow: hidden;
 }
 
 body {
