@@ -20,7 +20,10 @@ eq('6.7 mph', formatPace(6.7), '8:57');           // spec working range low end
 eq('15.0 mph', formatPace(15.0), '4:00');         // spec working range high end
 eq('6.666.. mph', formatPace(60 / 9), '9:00');
 eq('10 mph', formatPace(10), '6:00');
-eq('below 3 mph', formatPace(2.9), '--:--');
+// The floor is a sanity check against a parked phone's noise, not a judgement
+// about speed: at 3 mph it blanked the hero during a walk-back recovery.
+eq('below the 2 mph floor', formatPace(1.9), '--:--');
+eq('a walk-back recovery still reads a pace', formatPace(2.9), '20:41');
 eq('above 25 mph', formatPace(25.1), '--:--');
 eq('null', formatPace(null), '--:--');
 eq('speed fmt', formatSpeed(8.049), '8.0');

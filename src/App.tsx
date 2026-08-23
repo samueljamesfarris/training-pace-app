@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DevPanel } from './components/DevPanel';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { FinishCard } from './components/FinishCard';
 import { ResumePrompt } from './components/ResumePrompt';
 import { RideScreen } from './components/RideScreen';
@@ -8,6 +9,14 @@ import { applyUpdate, registerServiceWorker } from './lib/serviceWorker';
 import { useRide } from './lib/useRide';
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContents />
+    </ErrorBoundary>
+  );
+}
+
+function AppContents() {
   const ride = useRide();
   const [devOpen, setDevOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);

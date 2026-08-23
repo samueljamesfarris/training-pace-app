@@ -1,8 +1,15 @@
 export const METERS_PER_MILE = 1609.344;
 export const MPS_TO_MPH = 2.2369362920544;
 
-/** Outside this range a pace number would be nonsense, so we show `--:--`. */
-export const MIN_SANE_MPH = 3;
+/**
+ * Outside this range a pace number would be nonsense, so we show `--:--`.
+ *
+ * The floor exists to stop a stationary phone's noise being rendered as a pace,
+ * not to judge how fast someone is going. At 3 mph it caught a walk-back
+ * recovery and blanked the largest number on screen mid-workout, so it sits at
+ * 2 — still well clear of the ~1.5 mph a parked phone's jitter averages.
+ */
+export const MIN_SANE_MPH = 2;
 export const MAX_SANE_MPH = 25;
 
 export function mpsToMph(mps: number): number {

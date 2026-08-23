@@ -123,10 +123,115 @@ export function listWorkouts(): Promise<WorkoutDef[]> {
   return guard(tx<WorkoutDef[]>(WORKOUTS, 'readonly', (s) => s.getAll())).then((r) => r ?? []);
 }
 
-/** Most recent session that never reached `finished`. Used by step 2's resume. */
+/** Where the id of the currently live session is parked, so the next launch
+ *  can fetch one record instead of reading every session ever recorded. */
+const LIVE_KEY = 'pace-live-session';
+
+export function rememberLiveSession(id: string) {
+  try {
+    localStorage.setItem(LIVE_KEY, id);
+  } catch {
+    // Storage blocked; the scan below still finds it.
+  }
+}
+
+export function forgetLiveSession() {
+  try {
+    localStorage.removeItem(LIVE_KEY);
+  } catch {
+    // Nothing to do.
+  }
+}
+
+/**
+ * Most recent session that never reached `finished`.
+ *
+ * The pointer in localStorage is the fast path — one keyed read instead of
+ * deserialising every session on the phone. The full scan stays as the
+ * fallback, because the pointer can be missing for reasons that are not
+ * "there is no session": private mode, a cleared site setting, or a crash
+ * between creating the record and writing the key.
+ */
 export async function findUnfinishedSession(): Promise<SessionRecord | null> {
+  let liveId: string | null = null;
+  try {
+    liveId = localStorage.getItem(LIVE_KEY);
+  } catch {
+    liveId = null;
+  }
+  if (liveId) {
+    const rec = await getSession(liveId);
+    if (rec && rec.status !== 'finished') return rec;
+  }
   const all = await listSessions();
   const open = all.filter((s) => s.status !== 'finished');
   open.sort((a, b) => b.startedAt - a.startedAt);
   return open[0] ?? null;
+}
+
+/** Raw fixes for sessions this old are dropped; metadata is tiny and stays. */
+const KEEP_FIX_SESSIONS = 20;
+
+/**
+ * One fix per second per ride adds up without bound, and the failure mode is a
+ * quota error landing mid-workout. Keep the raw logs for the most recent rides
+ * and drop the rest — the session rows themselves are kept either way, so
+ * history stays complete even once its fixes are gone.
+ *
+ * Called once on load and never during a live session.
+ */
+export async function pruneOldFixes(): Promise<number> {
+  const pruned = await guard(
+    openDb().then(async (db) => {
+      const sessions = await new Promise<SessionRecord[]>((resolve, reject) => {
+        const req = db.transaction(SESSIONS, 'readonly').objectStore(SESSIONS).getAll();
+        req.onsuccess = () => resolve(req.result as SessionRecord[]);
+        req.onerror = () => reject(req.error);
+      });
+      const keep = new Set(
+        sessions
+          .slice()
+          .sort((a, b) => b.startedAt - a.startedAt)
+          .slice(0, KEEP_FIX_SESSIONS)
+          .map((s) => s.id),
+      );
+      const stale = sessions.filter((s) => !keep.has(s.id));
+      let count = 0;
+      for (const s of stale) count += await deleteFixesFor(s.id);
+      return count;
+    }),
+  );
+  if (pruned) console.info(`[db] pruned raw fixes from ${pruned} old session(s)`);
+  return pruned ?? 0;
+}
+
+/** Drop every raw fix belonging to one session. Returns 1 if any were removed. */
+async function deleteFixesFor(sessionId: string): Promise<number> {
+  const removed = await guard(
+    openDb().then(
+      (db) =>
+        new Promise<number>((resolve, reject) => {
+          const t = db.transaction(FIXES, 'readwrite');
+          const index = t.objectStore(FIXES).index('bySession');
+          const req = index.openKeyCursor(IDBKeyRange.only(sessionId));
+          let n = 0;
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (!cursor) return;
+            t.objectStore(FIXES).delete(cursor.primaryKey);
+            n++;
+            cursor.continue();
+          };
+          t.oncomplete = () => resolve(n);
+          t.onerror = () => reject(t.error);
+        }),
+    ),
+  );
+  return removed && removed > 0 ? 1 : 0;
+}
+
+/** Remove a session record and the raw fixes that belong to it. */
+export async function deleteSession(id: string) {
+  await deleteFixesFor(id);
+  await guard(tx(SESSIONS, 'readwrite', (s) => s.delete(id)));
 }

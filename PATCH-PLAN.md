@@ -5,7 +5,7 @@ Four steps, in order. Each is one Claude Code session, one phone test, one push.
 ## Status
 
 - [x] Step 1: Inputs and screen edges
-- [ ] Step 2: Durability
+- [x] Step 2: Durability
 - [ ] Step 3: Ride screen
 - [ ] Step 4: Builder structure and labels
 
@@ -182,6 +182,15 @@ editing a copy cannot mutate the original.
 
 Start a session, force-quit the app mid-workout, reopen. The resume prompt
 shows the right elapsed time and excludes the gap.
+
+> Verified at the desk: a deliberate render throw hit the boundary, the
+> fallback rendered, and reloading offered the session back at 0:22 with the
+> 30s gap excluded. Pruning took 25 seeded sessions from 88 raw fixes to 70,
+> leaving exactly 20 sessions with fixes and all 26 session rows intact.
+>
+> `tests/engine.test.ts` had encoded the old 3 mph pace floor; lowering it to 2
+> per 2d made 2.9 mph a real pace, so that assertion now checks the 2 mph
+> boundary instead.
 
 ---
 

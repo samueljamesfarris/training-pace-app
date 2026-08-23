@@ -110,7 +110,7 @@ export function RideScreen({
     !!workout && !!session && currentIndex(session) >= workout.segments.length - 1;
 
   return (
-    <div className="flex h-full flex-col bg-surface text-ink">
+    <div className="relative flex h-full flex-col bg-surface text-ink">
       <header className="flex items-center justify-between px-4 py-2">
         <GpsChip ride={ride} />
         <div className="flex items-center gap-3">

@@ -4,7 +4,10 @@ import {
   dbUnavailable,
   deleteWorkout as dbDeleteWorkout,
   findUnfinishedSession,
+  forgetLiveSession,
   getFixes,
+  pruneOldFixes,
+  rememberLiveSession,
   listWorkouts,
   putSession,
   putWorkout,
@@ -298,18 +301,21 @@ export function useRide() {
   // Persist session meta every second and flush buffered raw fixes every two.
   useEffect(() => {
     if (!session || session.status === 'finished') return;
+    const sessionId = session.id;
     const metaId = setInterval(() => persistNow(), PERSIST_MS);
     const fixId = setInterval(() => {
       const batch = fixBuffer.current;
       if (batch.length === 0) return;
       fixBuffer.current = [];
-      void appendFixes(session.id, batch);
+      void appendFixes(sessionId, batch);
     }, FIX_FLUSH_MS);
     return () => {
       clearInterval(metaId);
       clearInterval(fixId);
     };
-  }, [session, persistNow]);
+    // Keyed on identity and status only: depending on the whole record tore
+    // down and rebuilt both intervals on every segment boundary.
+  }, [session?.id, session?.status, persistNow]);
 
   const update = useCallback(
     (fn: (rec: SessionRecord) => SessionRecord) => {
@@ -340,7 +346,7 @@ export function useRide() {
       status: 'running',
       distanceMeters: 0,
       fixCount: 0,
-      source: sourceKind === 'geo' ? 'geo' : 'sim',
+      source: sourceKind,
       // Flattened here, once, so the engine only ever walks a flat array.
       workout: selectedWorkout ? resolveWorkout(selectedWorkout) : null,
       boundaries: [{ at: t, distanceMeters: 0 }],
@@ -348,6 +354,7 @@ export function useRide() {
     };
     sessionRef.current = rec;
     setSession(rec);
+    rememberLiveSession(rec.id);
     void putSession(rec);
     if (!sourceRef.current) startSource();
   }, [engine, beeps, sourceKind, startSource, selectedWorkout]);
@@ -385,6 +392,7 @@ export function useRide() {
     fixBuffer.current = [];
     if (sessionRef.current) void appendFixes(sessionRef.current.id, batch);
     beeps.cancelPending();
+    forgetLiveSession();
     stopSource();
   }, [update, stopSource, beeps]);
 
@@ -430,6 +438,9 @@ export function useRide() {
   useEffect(() => {
     void findUnfinishedSession().then((rec) => {
       if (rec && !sessionRef.current) setResumable(rec);
+      // Only once the resume question is settled, and never with a session
+      // live: pruning mid-ride is exactly the risk it exists to avoid.
+      if (!rec) void pruneOldFixes();
     });
   }, []);
 
@@ -451,7 +462,7 @@ export function useRide() {
     const revived: SessionRecord = { ...rec, status: 'paused', pauses, lastSeenAt: t };
     sessionRef.current = revived;
     setSession(revived);
-    setSelectedWorkout(null);
+    rememberLiveSession(revived.id);
     void putSession(revived);
     beeps.init();
     if (!sourceRef.current) startSourceRef.current();
@@ -460,10 +471,12 @@ export function useRide() {
   const discardResumable = useCallback(async () => {
     const rec = resumable;
     setResumable(null);
+    forgetLiveSession();
     if (!rec) return;
     // Mark it finished rather than deleting: the ride happened, and its raw
     // log is still worth having.
     await putSession({ ...rec, status: 'finished', finishedAt: rec.finishedAt ?? Date.now() });
+    void pruneOldFixes();
   }, [resumable]);
 
   const clearSession = useCallback(() => {

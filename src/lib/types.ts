@@ -42,8 +42,9 @@ export interface SessionRecord {
   /** Accumulated distance in meters, persisted so a reload doesn't lose it. */
   distanceMeters: number;
   fixCount: number;
-  /** Which source produced this session's fixes. */
-  source: 'geo' | 'sim';
+  /** Which source produced this session's fixes. Replay is its own kind, or a
+   *  replayed session is indistinguishable from a simulated one after the fact. */
+  source: 'geo' | 'sim' | 'replay';
   /** The loaded workout, already flattened. Null for a free run. */
   workout: ResolvedWorkout | null;
   /** Segment (or lap) start instants, in order. */
