@@ -10,12 +10,13 @@
  *   3 / 2 / 1      one short beep at 1046 Hz        "counting down"
  *   boundary       one long 1.5 s beep at 1568 Hz   "go / next segment"
  *   manual lap     one short chirp at 1318 Hz
+ *   mile split     two quick chirps at 1318 Hz  "another mile"
  *
  * Frequencies sit in the 750–1600 Hz band where a phone speaker is loudest and
  * wind noise is weakest; a bike at 10 mph is a noisy place.
  */
 
-export type CueName = 'warning' | 'countdown' | 'boundary' | 'lap';
+export type CueName = 'warning' | 'countdown' | 'boundary' | 'lap' | 'mile';
 
 interface ToneSpec {
   freq: number;
@@ -33,6 +34,11 @@ const CUES: Record<CueName, ToneSpec[]> = {
   countdown: [{ freq: 1046, duration: 0.13, at: 0 }],
   boundary: [{ freq: 1568, duration: 1.5, at: 0 }],
   lap: [{ freq: 1318, duration: 0.1, at: 0 }],
+  // Same voice as a lap, doubled: a mile is a lap the road handed you.
+  mile: [
+    { freq: 1318, duration: 0.1, at: 0 },
+    { freq: 1318, duration: 0.1, at: 0.16 },
+  ],
 };
 
 /** Seconds before a segment ends at which each cue fires. */

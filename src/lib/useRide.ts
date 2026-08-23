@@ -33,11 +33,36 @@ import {
   DEFAULT_AUDIO,
   WARNING_AT_SEC,
   type AudioSettings,
+  type CueName,
 } from './audio';
-import { computeAutoAdvance, currentIndex, currentSegment } from './segments';
+import {
+  completedSegments,
+  computeAutoAdvance,
+  currentIndex,
+  currentSegment,
+} from './segments';
 import { elapsedMs, wallClockAfter, type RawFix, type SessionRecord } from './types';
+import { averageMph, MAX_SANE_MPH, metersToMiles, MIN_SANE_MPH } from './units';
+
+/**
+ * Pace to speak, or null. Applies the same sanity range the display uses: the
+ * screen refuses to render a nonsense pace as `--:--`, and the voice must not
+ * announce one either.
+ */
+function spokenPaceFor(meters: number, ms: number): string | null {
+  const mph = averageMph(meters, ms);
+  if (mph == null || mph < MIN_SANE_MPH || mph > MAX_SANE_MPH) return null;
+  return speakablePace(3600 / mph);
+}
 import { PRESET_WORKOUTS, resolveWorkout, type WorkoutDef } from './workouts';
 import { applyTheme, loadTheme, type Theme } from './theme';
+import {
+  DEFAULT_SPEECH,
+  speakableDuration,
+  speakablePace,
+  SpeechEngine,
+  type SpeechSettings,
+} from './speech';
 import { WakeLockManager, type WakeLockState } from './wakeLock';
 
 export type SourceKind = 'geo' | 'sim' | 'replay';
@@ -74,6 +99,7 @@ export function useRide() {
   /** Chosen before the session starts; flattened into the record on start. */
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutDef | null>(null);
   const [audio, setAudio] = useState<AudioSettings>(DEFAULT_AUDIO);
+  const [speech, setSpeech] = useState<SpeechSettings>(DEFAULT_SPEECH);
   /** Bumped to force cues to be re-scheduled after a suspend or interruption. */
   const [cueEpoch, setCueEpoch] = useState(0);
   const [customWorkouts, setCustomWorkouts] = useState<WorkoutDef[]>([]);
@@ -95,10 +121,15 @@ export function useRide() {
   /** Late-bound: the visibility handler may need to restart a dead watch. */
   const startSourceRef = useRef<() => void>(() => {});
   const beeps = useRef(new BeepEngine()).current;
+  const voice = useRef(new SpeechEngine()).current;
+  /** Whole miles already announced this session, so each is called once. */
+  const milesCalled = useRef(0);
   const wakeLock = useRef(new WakeLockManager()).current;
   /** Fixes captured while warming up, before a session exists. */
   const warmupLog = useRef<RawFix[]>([]);
 
+  const audioRef = useRef(audio);
+  audioRef.current = audio;
   sessionRef.current = session;
   simConfigRef.current = simConfig;
   suspendedRef.current = suspended;
@@ -117,8 +148,24 @@ export function useRide() {
     [beeps],
   );
 
+  const applySpeech = useCallback(
+    (next: SpeechSettings) => {
+      voice.settings = next;
+      setSpeech(next);
+    },
+    [voice],
+  );
+
+  const previewSpeech = useCallback(
+    (text: string) => {
+      voice.warm();
+      voice.say(text);
+    },
+    [voice],
+  );
+
   const previewCue = useCallback(
-    (cue: 'warning' | 'countdown' | 'boundary' | 'lap') => beeps.preview(cue),
+    (cue: CueName) => beeps.preview(cue),
     [beeps],
   );
 
@@ -190,13 +237,26 @@ export function useRide() {
         warmupLog.current.push(fix);
         if (warmupLog.current.length > 1200) warmupLog.current.shift();
       }
+      // Mile splits, free runs only — a workout announces its own segments.
+      if (rec?.status === 'running' && !rec.workout) {
+        const whole = Math.floor(metersToMiles(engine.distanceMeters));
+        if (whole > milesCalled.current) {
+          milesCalled.current = whole;
+          beeps.play('mile');
+          const pace = spokenPaceFor(engine.distanceMeters, elapsedMs(rec, receivedAt));
+          window.setTimeout(
+            () => voice.say(`Mile ${whole}${pace ? `, ${pace}` : ''}`),
+            400,
+          );
+        }
+      }
       setError(null);
       setGps(engine.snapshot(receivedAt));
       // A distance segment can only end on a fix, so check here as well as on
       // the tick — otherwise the boundary waits up to 250ms for no reason.
       advanceRef.current();
     },
-    [engine],
+    [engine, beeps, voice],
   );
 
   // Whether a watch *should* be running. Kept in a ref so the restart effect
@@ -269,6 +329,7 @@ export function useRide() {
       // iOS suspends the AudioContext in the background, which silently drops
       // anything already scheduled. Resume it and lay the cues down again.
       void beeps.resume();
+      voice.recover();
       setCueEpoch((e) => e + 1);
       // iOS also releases the wake lock on background and never returns it.
       void wakeLock.reacquire();
@@ -281,7 +342,7 @@ export function useRide() {
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [engine, beeps, wakeLock]);
+  }, [engine, beeps, voice, wakeLock]);
 
   const persistNow = useCallback(
     (override?: Partial<SessionRecord>) => {
@@ -338,6 +399,8 @@ export function useRide() {
   const start = useCallback(() => {
     engine.resetForSession();
     beeps.init();
+    voice.warm();
+    milesCalled.current = 0;
     // Proof the audio pipeline is alive, at the one moment it can still be
     // fixed. Respects the mute toggle, since `play` checks it.
     beeps.play('lap');
@@ -366,7 +429,7 @@ export function useRide() {
     rememberLiveSession(rec.id);
     void putSession(rec);
     if (!sourceRef.current) startSource();
-  }, [engine, beeps, sourceKind, startSource, selectedWorkout]);
+  }, [engine, beeps, voice, sourceKind, startSource, selectedWorkout]);
 
   const pause = useCallback(() => {
     // Drop the anchor so the stopped stretch never gets bridged into distance.
@@ -410,6 +473,32 @@ export function useRide() {
    * segments are placed at their exact instant, so a phone that slept through
    * a rest lands on the correct segment rather than one behind.
    */
+  /**
+   * Say what just finished and what has begun.
+   *
+   * Delayed past the 1.5s boundary tone so the two don't talk over each other,
+   * on a plain timeout — speech can't be scheduled on the audio clock, and if
+   * a backgrounded tab drops it, the beeps already carried the message.
+   */
+  const announceBoundary = useCallback(
+    (rec: SessionRecord, closedIndex: number) => {
+      if (!voice.settings.enabled || !audioRef.current.enabled) return;
+      const rows = completedSegments(rec, Date.now(), engine.distanceMeters);
+      const closed = rows[closedIndex];
+      const startingName = rec.workout?.segments[closedIndex + 1]?.name ?? null;
+      window.setTimeout(() => {
+        if (closed && closed.durationMs > 2000) {
+          const pace = spokenPaceFor(closed.distanceMeters, closed.durationMs);
+          voice.say(
+            `${speakableDuration(closed.durationMs)}${pace ? `, ${pace} pace` : ''}`,
+          );
+        }
+        if (startingName) voice.say(startingName);
+      }, 1700);
+    },
+    [engine, voice],
+  );
+
   const maybeAdvance = useCallback(() => {
     const rec = sessionRef.current;
     if (!rec || rec.status !== 'running' || !rec.workout) return;
@@ -418,8 +507,10 @@ export function useRide() {
     // A timed segment's boundary beep was scheduled in advance. A distance
     // segment has no knowable end time, so it can only be sounded on arrival.
     if (currentSegment(rec)?.end.type === 'distance') beeps.play('boundary');
+    const closedIndex = currentIndex(rec);
     update((r) => ({ ...r, boundaries: [...r.boundaries, ...add] }));
-  }, [engine, update, beeps]);
+    announceBoundary(rec, closedIndex);
+  }, [engine, update, beeps, announceBoundary]);
 
   advanceRef.current = maybeAdvance;
 
@@ -432,11 +523,13 @@ export function useRide() {
     if (!rec || rec.status === 'finished') return;
     if (rec.workout && currentIndex(rec) >= rec.workout.segments.length - 1) return;
     beeps.play(rec.workout ? 'boundary' : 'lap');
+    const closedIndex = currentIndex(rec);
     update((r) => ({
       ...r,
       boundaries: [...r.boundaries, { at: Date.now(), distanceMeters: engine.distanceMeters }],
     }));
-  }, [engine, update, beeps]);
+    announceBoundary(rec, closedIndex);
+  }, [engine, update, beeps, announceBoundary]);
 
   /**
    * On load, look for a session that never reached `finished`. The record
@@ -633,6 +726,10 @@ export function useRide() {
     discardResumable,
     audio,
     applyAudio,
+    speech,
+    applySpeech,
+    previewSpeech,
+    speechSupported: voice.supported,
     previewCue,
     audioReady: beeps.ready,
     audioState: beeps.state,

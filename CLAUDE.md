@@ -42,6 +42,8 @@ being correct and dull over clever.
   flattens once, at session start.
 - `src/lib/audio.ts` — beeps scheduled on `AudioContext.currentTime`, derived
   from the same boundary instant the countdown displays.
+- `src/lib/speech.ts` — spoken cues layered on the beeps. Best-effort by
+  design: iOS drops speech silently, so nothing may depend on it.
 - `src/lib/sources.ts` — real GPS, synthetic simulator, and recorded-log replay,
   all emitting the identical fix shape so simulation exercises real code.
 - `src/lib/useRide.ts` — session state machine, persistence, tick, cue
@@ -68,7 +70,8 @@ These were each found by a bug on a real ride. Don't undo them casually.
 - **A fresh `AudioContext` has `currentTime === 0`**, so envelope maths must not
   compute negative times.
 - **Countdowns round up, stopwatches truncate**, or the two clocks read a second
-  apart.
+  apart. Spoken splits truncate too, or the voice says "29 seconds" beside a
+  pill reading 0:28.
 - **Resume excludes the dead gap** using the `lastSeenAt` heartbeat, so a crash
   doesn't inflate the workout.
 
@@ -119,7 +122,6 @@ Built: steps 1–6 of the spec's build order, plus beeps. Verified against two
 real rides.
 
 Open, roughly in priority order:
-- Spoken cues layered on the beeps (spec step 4's second half)
 - Target paces and tolerance bands, plus the off-target warning
 - History, summary, CSV export (step 7)
 - Kilometers — all pace maths and displays currently assume miles

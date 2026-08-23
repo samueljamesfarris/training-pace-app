@@ -322,7 +322,7 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
             format={(v) => `${Math.round(v * 100)}%`}
           />
           <div className="mt-1 flex flex-wrap gap-2">
-            {(['warning', 'countdown', 'boundary', 'lap'] as const).map((c) => (
+            {(['warning', 'countdown', 'boundary', 'lap', 'mile'] as const).map((c) => (
               <button
                 key={c}
                 onClick={() => ride.previewCue(c)}
@@ -332,6 +332,46 @@ export function DevPanel({ ride, onClose }: { ride: Ride; onClose: () => void })
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="border-t border-line py-3">
+          <h3 className="mb-1 text-xs font-bold tracking-widest text-muted uppercase">
+            Spoken cues
+          </h3>
+          <p className="mb-2 text-xs text-muted">
+            Speech rides on top of the beeps and is allowed to fail — iOS drops it
+            silently after interruptions, so the beeps stay the real signal.
+            {!ride.speechSupported && ' This browser has no speech synthesis.'}
+          </p>
+          <Toggle
+            label={ride.speech.enabled ? 'SPEECH ON' : 'speech off'}
+            on={ride.speech.enabled}
+            onChange={(v) => ride.applySpeech({ ...ride.speech, enabled: v })}
+          />
+          <Slider
+            label="Voice rate"
+            value={ride.speech.rate}
+            min={0.6}
+            max={1.8}
+            step={0.05}
+            onChange={(v) => ride.applySpeech({ ...ride.speech, rate: v })}
+            format={(v) => `${v.toFixed(2)}×`}
+          />
+          <Slider
+            label="Voice volume"
+            value={ride.speech.volume}
+            min={0.1}
+            max={1}
+            step={0.05}
+            onChange={(v) => ride.applySpeech({ ...ride.speech, volume: v })}
+            format={(v) => `${Math.round(v * 100)}%`}
+          />
+          <button
+            onClick={() => ride.previewSpeech('On 2. 1 30, 7 oh 4 pace.')}
+            className="mt-1 w-full rounded-lg border border-line py-2 text-sm font-bold text-ink"
+          >
+            Test voice
+          </button>
         </section>
 
         <section className="border-t border-line py-3 text-sm">

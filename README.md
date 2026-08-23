@@ -45,8 +45,8 @@ button records a lap instead of advancing.
 Plus step 2: screen wake lock, offline service worker, home-screen install, and
 the reload-resume prompt.
 
-Not yet built (later steps): spoken cues on top of the beeps, target paces and
-tolerance bands, history and CSV export.
+Not yet built: target paces and tolerance bands, history and CSV export.
+Kilometers remain a future option; everything assumes miles today.
 
 ### Reliability behaviors
 
@@ -119,6 +119,7 @@ throttles the JS timer loop.
 | 3, 2, 1 s | one short beep each, 1046 Hz |
 | segment boundary / next segment | one long 1.5 s beep, 1568 Hz |
 | manual lap (free run) | one short chirp, 1318 Hz |
+| mile split (free run) | two quick chirps, 1318 Hz |
 
 Frequencies sit in the 750–1600 Hz band, where a phone speaker is loudest and
 wind noise is weakest.
@@ -129,3 +130,21 @@ there is no honest way to know when a distance will be reached.
 
 Toggles, volume, and a test button for each cue live in the dev panel; the
 header has a mute.
+
+### Spoken cues
+
+Speech rides on top of the beeps and is allowed to fail. `speechSynthesis` on
+iOS goes silent after interruptions and loads voices asynchronously, so every
+call is best-effort — if speech dies mid-workout the beeps carry on unchanged.
+It is primed with a silent utterance on the START tap, and a wedged queue is
+cleared on every return to visible.
+
+| When | Said |
+| --- | --- |
+| segment boundary | the split that closed, then the segment starting — "30 seconds, 7 30 pace" / "On 2" |
+| manual lap | the lap's split and pace |
+| mile split, free runs | "Mile 1, 7 40" |
+
+Numbers are spoken the way a person says them: 8:04 becomes "8 oh 4", not
+"eight colon zero four". Splits truncate to match the clock on screen, and a
+pace outside the sane range is left unsaid rather than announced as nonsense.
