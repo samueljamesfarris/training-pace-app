@@ -85,6 +85,13 @@ from the one that was sent would be worse than importing none.
 
 ### Dev tools
 
+DEV → Screen reports the running bundle: the commit it was built from and when.
+The app is installed to a home screen and takes updates only when allowed to,
+so "which version is on the phone" has a non-obvious answer — and the string is
+compiled into the same file the browser is running, so it cannot report a build
+the phone isn't using. A local build says `dev`; the deployed ones carry the
+short SHA.
+
 The DEV button is hidden. Five taps on the status chip in the header reveal it
 (and five more, or "Hide DEV" in the panel, put it away); `?dev=1` does the
 same in a browser tab. The choice is remembered. It is hidden rather than
@@ -202,7 +209,7 @@ throttles the JS timer loop.
 | When | Sound |
 | --- | --- |
 | count-in, 3-2-1 | one short beep each, 1046 Hz |
-| the session starting | one long 1.5 s beep, 1568 Hz, under the word "start" |
+| the session starting | one long 1.5 s beep, 1568 Hz |
 | 10 s before a segment ends | two short beeps, 784 Hz |
 | 3, 2, 1 s | one short beep each, 1046 Hz |
 | segment boundary / next segment | one long 1.5 s beep, 1568 Hz |
@@ -214,11 +221,19 @@ Frequencies sit in the 750–1600 Hz band, where a phone speaker is loudest and
 wind noise is weakest.
 
 START counts in for three seconds before anything begins: three beeps, then
-the long tone with "Start" over it. The session's clock starts at the *end* of
-the count, from the same stored instant the beeps were scheduled against, so
+the long tone. Tones only — they already say "three, two, one, go" in the app's
+own vocabulary, and a spoken word on top of the start tone is one thing too
+many at the moment you are clipping in and looking up. The session's clock
+starts at the *end* of the count, from the same stored instant the beeps were scheduled against, so
 the count-in is never counted as workout time and the first rep is a full rep.
 A second tap during the count backs out of it, because a mis-tapped START
-should not cost a session. If the phone suspends JS through the count — which
+should not cost a session.
+
+The tap is also where location is asked for, if the watch isn't already
+running from WARM UP GPS. iOS grants it only inside a gesture, and asking there
+means the fix is settling through the count-in rather than the session starting
+cold. It is the *first* tap that asks — which may be the one that arms
+"NO GPS — START?", since that is exactly the case where there is no fix yet. If the phone suspends JS through the count — which
 the tick makes near-impossible with the screen awake — the session is not
 started retroactively; it simply asks to be tapped again.
 
@@ -256,7 +271,6 @@ cleared on every return to visible.
 
 | When | Said |
 | --- | --- |
-| the session starting | "Start", on the long tone at the end of the count-in |
 | boundary, inside a repeat set | only what is starting — "Rest number 2" |
 | boundary, a standalone step | the split that closed, then what is starting — "3 minutes, 7 30 pace" / "Tempo" |
 | manual lap | the lap's split and pace |

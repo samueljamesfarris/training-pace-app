@@ -109,6 +109,19 @@ function Toggle({
   );
 }
 
+/** The build's timestamp in the reader's own time zone, not UTC. */
+function buildStamp(): string {
+  const t = new Date(__BUILD_TIME__);
+  return Number.isNaN(t.getTime())
+    ? __BUILD_TIME__
+    : t.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+}
+
 export function DevPanel({
   ride,
   onClose,
@@ -423,6 +436,10 @@ export function DevPanel({
           <Row label="safe area t r b l" value={screen.insets} />
           <Row label="launched as" value={screen.mode} />
           <Row label="viewport" value={screen.viewport} />
+          {/* Which bundle is actually running, which after an install is not
+              the same question as which build was last deployed. */}
+          <Row label="build" value={__BUILD_SHA__} />
+          <Row label="built" value={buildStamp()} />
         </section>
 
         <section className="border-t border-line py-3">

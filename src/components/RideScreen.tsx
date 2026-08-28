@@ -509,6 +509,11 @@ export function RideScreen({
             <div className="flex gap-2">
               <button
                 onClick={() => {
+                  // Ask for location on the tap that asks for a session, not
+                  // three seconds later: iOS grants it only inside a gesture,
+                  // and the first tap here may be the arming one, which is
+                  // exactly when there is no fix yet to arm against.
+                  if (!ride.gpsActive) ride.startSource();
                   if (ride.hasUsableFix || startArmed) {
                     setStartArmed(false);
                     ride.start();

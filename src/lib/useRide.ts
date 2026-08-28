@@ -508,18 +508,22 @@ export function useRide() {
   );
 
   /**
-   * The count-in: three beeps and then the word, on the long boundary tone.
+   * The count-in: three beeps and then the long boundary tone. Tones only —
+   * the beeps already say "three, two, one, go" in the app's own vocabulary,
+   * and a spoken word on top of the start tone is one thing too many at the
+   * moment he is clipping in and looking up.
    *
-   * The audio pipeline is unlocked here rather than at the start proper,
-   * because iOS only grants that inside the tap itself — and the count-in is
-   * also the proof it worked, at the one moment it can still be fixed. The
-   * beeps go on the audio clock from the same instant the screen counts to, so
-   * what is heard and what is seen cannot disagree.
+   * Two things are unlocked here rather than at the start proper, both because
+   * iOS grants them only inside the tap itself: the audio pipeline, and
+   * location. Asking for the fix now also means it is settling during the
+   * count-in instead of the session starting cold.
    */
   const beginCountdown = useCallback(() => {
     if (sessionRef.current || countdownRef.current != null) return;
     beeps.init();
     voice.warm();
+    // No-op indoors, and harmless if the watch is already running.
+    if (!sourceRef.current) startSource();
     const endsAt = Date.now() + COUNTDOWN_MS;
     countdownRef.current = endsAt;
     setCountdownEndsAt(endsAt);
@@ -529,7 +533,7 @@ export function useRide() {
     beeps.scheduleAt('countdown', endsAt - 2000);
     beeps.scheduleAt('countdown', endsAt - 1000);
     beeps.scheduleAt('boundary', endsAt);
-  }, [beeps, voice]);
+  }, [beeps, voice, startSource]);
 
   /** Back out of a count-in. A mis-tapped START must not cost a session. */
   const cancelCountdown = useCallback(() => {
@@ -556,9 +560,8 @@ export function useRide() {
         return;
       }
       startAt(endsAt);
-      voice.say('Start');
     },
-    [startAt, voice, beeps],
+    [startAt, beeps],
   );
   const settleRef = useRef(settleCountdown);
   settleRef.current = settleCountdown;
