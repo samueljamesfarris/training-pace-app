@@ -54,6 +54,52 @@ export function speakableDuration(ms: number): string {
   return `${m} ${s < 10 ? 'oh ' : ''}${s}`;
 }
 
+/**
+ * A segment's name the way it should be said.
+ *
+ * Inside a repeat set the index is a count, not part of the name, and "Rest 2"
+ * read aloud is ambiguous with a segment actually called that. "Rest number 2"
+ * is how a coach says it on a track.
+ */
+export function spokenSegmentName(seg: {
+  name: string;
+  baseName?: string;
+  repeatIndex?: number;
+}): string {
+  if (seg.repeatIndex == null || !seg.baseName) return seg.name;
+  return `${seg.baseName} number ${seg.repeatIndex}`;
+}
+
+/** What the voice says at a boundary, in order. Empty means stay quiet. */
+export function boundaryPhrases(
+  closed: {
+    durationMs: number;
+    /** Null when no pace worth stating was measured. */
+    paceSecPerMile: number | null;
+    /** True when it was a rep inside a repeat set. */
+    inRepeat: boolean;
+  } | null,
+  /** Already spoken-form; null on the last segment and on a free-run lap. */
+  nextName: string | null,
+): string[] {
+  const out: string[] = [];
+
+  /*
+   * A rep inside a set gets no report at all. On a 60-second rep the callout
+   * is still talking when the next rep has started, and by then what matters
+   * is what to do now, not what just happened. A standalone step is different:
+   * there the split is the point, so it keeps its time and pace.
+   *
+   * Under two seconds is a mis-tap either way, and never worth a eulogy.
+   */
+  if (closed && !closed.inRepeat && closed.durationMs > 2000) {
+    const pace = speakablePace(closed.paceSecPerMile);
+    out.push(`${speakableDuration(closed.durationMs)}${pace ? `, ${pace} pace` : ''}`);
+  }
+  if (nextName) out.push(nextName);
+  return out;
+}
+
 export class SpeechEngine {
   settings: SpeechSettings = { ...DEFAULT_SPEECH };
   private voice: SpeechSynthesisVoice | null = null;

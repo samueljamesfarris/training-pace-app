@@ -52,10 +52,11 @@ import { PRESET_WORKOUTS, resolveWorkout, type WorkoutDef } from './workouts';
 import { loadMode, saveMode, type RideMode } from './mode';
 import { applyTheme, loadTheme, type Theme } from './theme';
 import {
+  boundaryPhrases,
   DEFAULT_SPEECH,
-  speakableDuration,
   speakablePace,
   SpeechEngine,
+  spokenSegmentName,
   type SpeechSettings,
 } from './speech';
 import { WakeLockManager, type WakeLockState } from './wakeLock';
@@ -71,6 +72,21 @@ export type SourceKind = 'geo' | 'sim' | 'replay';
 // Fast enough that a second flips within a tenth of when it truly does, so the
 // countdown and the stopwatch visibly change on the same beat.
 const TICK_MS = 100;
+
+/**
+ * The count-in before a session starts. Three seconds is the length of the
+ * beeps already used at every segment boundary, so the start sounds like the
+ * rest of the app rather than like a new thing to learn.
+ */
+export const COUNTDOWN_MS = 3000;
+
+/**
+ * How late the count-in may fire and still start the session. The tick runs at
+ * 100ms with the screen awake, so this only trips if the phone suspended JS
+ * mid-count — and starting a session whose clock began minutes ago, with
+ * nobody running, would be worse than making him tap again.
+ */
+const COUNTDOWN_STALE_MS = 2000;
 const PERSIST_MS = 1000;
 const FIX_FLUSH_MS = 2000;
 
@@ -112,6 +128,13 @@ export function useRide() {
   const [wakeLockState, setWakeLockState] = useState<WakeLockState>('released');
   /** An unfinished session found in storage on load, awaiting resume/discard. */
   const [resumable, setResumable] = useState<SessionRecord | null>(null);
+  /**
+   * The instant the count-in ends, which is also the instant the session
+   * begins. A stored instant rather than a counter: the beeps, the number on
+   * screen and `startedAt` all derive from this one moment, so they cannot
+   * drift apart, and a phone that slept through the count is detectable.
+   */
+  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
 
   // Refs mirror state for the callbacks that live outside React's render cycle
   // (the position source, the tick loop, the persistence loop).
@@ -134,6 +157,8 @@ export function useRide() {
   const wakeLock = useRef(new WakeLockManager()).current;
   /** Fixes captured while warming up, before a session exists. */
   const warmupLog = useRef<RawFix[]>([]);
+  /** Mirrors countdownEndsAt for the tick loop, which lives outside render. */
+  const countdownRef = useRef<number | null>(null);
 
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -358,6 +383,7 @@ export function useRide() {
       const t = Date.now();
       setNow(t);
       setGps(engine.snapshot(t));
+      settleRef.current(t);
       advanceRef.current();
       offTargetRef.current(t);
     }, TICK_MS);
@@ -442,42 +468,100 @@ export function useRide() {
     [persistNow],
   );
 
-  const start = useCallback(() => {
-    engine.resetForSession();
+  /**
+   * Begin the session for real. `at` is the instant it started, which is the
+   * end of the count-in rather than "now" — a stored instant, so the clock is
+   * right even if the tick that noticed was a fraction late.
+   */
+  const startAt = useCallback(
+    (at: number) => {
+      engine.resetForSession();
+      offTarget.resetAll();
+      milesCalled.current = 0;
+      // Carry the warm-up fixes in so the log covers the standstill too.
+      memLog.current = [...warmupLog.current];
+      fixBuffer.current = [...warmupLog.current];
+      warmupLog.current = [];
+      const rec: SessionRecord = {
+        id: makeId(at),
+        createdAt: at,
+        startedAt: at,
+        pauses: [],
+        finishedAt: null,
+        status: 'running',
+        distanceMeters: 0,
+        fixCount: 0,
+        source: sourceKind,
+        mode,
+        // Flattened here, once, so the engine only ever walks a flat array.
+        workout: selectedWorkout ? resolveWorkout(selectedWorkout) : null,
+        boundaries: [{ at, distanceMeters: 0 }],
+        lastSeenAt: at,
+      };
+      sessionRef.current = rec;
+      setSession(rec);
+      rememberLiveSession(rec.id);
+      void putSession(rec);
+      if (!sourceRef.current) startSource();
+    },
+    [engine, offTarget, sourceKind, startSource, selectedWorkout, mode],
+  );
+
+  /**
+   * The count-in: three beeps and then the word, on the long boundary tone.
+   *
+   * The audio pipeline is unlocked here rather than at the start proper,
+   * because iOS only grants that inside the tap itself — and the count-in is
+   * also the proof it worked, at the one moment it can still be fixed. The
+   * beeps go on the audio clock from the same instant the screen counts to, so
+   * what is heard and what is seen cannot disagree.
+   */
+  const beginCountdown = useCallback(() => {
+    if (sessionRef.current || countdownRef.current != null) return;
     beeps.init();
     voice.warm();
-    offTarget.resetAll();
-    milesCalled.current = 0;
-    // Proof the audio pipeline is alive, at the one moment it can still be
-    // fixed. Respects the mute toggle, since `play` checks it.
-    beeps.play('lap');
-    // Carry the warm-up fixes in so the log covers the standstill too.
-    memLog.current = [...warmupLog.current];
-    fixBuffer.current = [...warmupLog.current];
-    warmupLog.current = [];
-    const t = Date.now();
-    const rec: SessionRecord = {
-      id: makeId(t),
-      createdAt: t,
-      startedAt: t,
-      pauses: [],
-      finishedAt: null,
-      status: 'running',
-      distanceMeters: 0,
-      fixCount: 0,
-      source: sourceKind,
-      mode,
-      // Flattened here, once, so the engine only ever walks a flat array.
-      workout: selectedWorkout ? resolveWorkout(selectedWorkout) : null,
-      boundaries: [{ at: t, distanceMeters: 0 }],
-      lastSeenAt: t,
-    };
-    sessionRef.current = rec;
-    setSession(rec);
-    rememberLiveSession(rec.id);
-    void putSession(rec);
-    if (!sourceRef.current) startSource();
-  }, [engine, beeps, voice, offTarget, sourceKind, startSource, selectedWorkout, mode]);
+    const endsAt = Date.now() + COUNTDOWN_MS;
+    countdownRef.current = endsAt;
+    setCountdownEndsAt(endsAt);
+    // "3" is now, so it plays rather than schedules — a cue whose moment has
+    // already arrived is skipped by the scheduler, by design.
+    beeps.play('countdown');
+    beeps.scheduleAt('countdown', endsAt - 2000);
+    beeps.scheduleAt('countdown', endsAt - 1000);
+    beeps.scheduleAt('boundary', endsAt);
+  }, [beeps, voice]);
+
+  /** Back out of a count-in. A mis-tapped START must not cost a session. */
+  const cancelCountdown = useCallback(() => {
+    if (countdownRef.current == null) return;
+    countdownRef.current = null;
+    setCountdownEndsAt(null);
+    beeps.cancelPending();
+  }, [beeps]);
+
+  /**
+   * Driven from the tick, so the count-in ends on wall-clock time like every
+   * other deadline in the app.
+   */
+  const settleCountdown = useCallback(
+    (now: number) => {
+      const endsAt = countdownRef.current;
+      if (endsAt == null || now < endsAt) return;
+      countdownRef.current = null;
+      setCountdownEndsAt(null);
+      if (now - endsAt > COUNTDOWN_STALE_MS) {
+        // The phone slept through the count. Starting now would date the
+        // session to a moment nobody was running; make him tap again instead.
+        beeps.cancelPending();
+        return;
+      }
+      startAt(endsAt);
+      voice.say('Start');
+    },
+    [startAt, voice, beeps],
+  );
+  const settleRef = useRef(settleCountdown);
+  settleRef.current = settleCountdown;
 
   const pause = useCallback(() => {
     // Drop the anchor so the stopped stretch never gets bridged into distance.
@@ -534,15 +618,22 @@ export function useRide() {
       if (!voice.settings.enabled || !audioRef.current.enabled) return;
       const rows = completedSegments(rec, Date.now(), engine.distanceMeters);
       const closed = rows[closedIndex];
-      const startingName = rec.workout?.segments[closedIndex + 1]?.name ?? null;
+      const closedSeg = rec.workout?.segments[closedIndex] ?? null;
+      const nextSeg = rec.workout?.segments[closedIndex + 1] ?? null;
+      const phrases = boundaryPhrases(
+        closed
+          ? {
+              durationMs: closed.durationMs,
+              paceSecPerMile: sanePaceSecPerMile(closed.distanceMeters, closed.durationMs),
+              // A rep inside a set is not reported; only what comes next is.
+              inRepeat: closedSeg?.repeatIndex != null,
+            }
+          : null,
+        nextSeg ? spokenSegmentName(nextSeg) : null,
+      );
+      if (phrases.length === 0) return;
       window.setTimeout(() => {
-        if (closed && closed.durationMs > 2000) {
-          const pace = spokenPaceFor(closed.distanceMeters, closed.durationMs);
-          voice.say(
-            `${speakableDuration(closed.durationMs)}${pace ? `, ${pace} pace` : ''}`,
-          );
-        }
-        if (startingName) voice.say(startingName);
+        for (const phrase of phrases) voice.say(phrase);
       }, 1700);
     },
     [engine, voice],
@@ -826,7 +917,9 @@ export function useRide() {
     previewCue,
     audioReady: beeps.ready,
     audioState: beeps.state,
-    start,
+    start: beginCountdown,
+    cancelCountdown,
+    countdownEndsAt,
     pause,
     resume,
     finish,

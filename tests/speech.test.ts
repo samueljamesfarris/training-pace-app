@@ -1,4 +1,10 @@
-import { speakableDuration, speakablePace } from '../src/lib/speech.ts';
+import {
+  boundaryPhrases,
+  speakableDuration,
+  speakablePace,
+  spokenSegmentName,
+} from '../src/lib/speech.ts';
+import { resolveWorkout, type WorkoutDef } from '../src/lib/workouts.ts';
 
 let fails = 0;
 function eq(label: string, got: unknown, want: unknown) {
@@ -40,6 +46,67 @@ console.log('\n--- phrases stay short enough to finish before the next cue ---')
   const phrase = `${speakableDuration(119_000)}, ${speakablePace(450)} pace`;
   eq('boundary phrase', phrase, '1 59, 7 30 pace');
   eq('word count stays small', phrase.split(' ').length <= 7, true);
+}
+
+
+console.log('\n--- a rep inside a set is named the way a coach says it ---');
+{
+  const ladder: WorkoutDef = {
+    id: 'w', name: 'Set test',
+    blocks: [
+      { id: 'a', repeat: 1, segments: [{ name: 'Warmup', kind: 'warmup', end: { type: 'time', seconds: 600 } }] },
+      { id: 'b', repeat: 4, segments: [
+        { name: 'On', kind: 'work', end: { type: 'time', seconds: 60 } },
+        { name: 'Rest', kind: 'recovery', end: { type: 'time', seconds: 60 } },
+      ] },
+    ],
+  };
+  const segs = resolveWorkout(ladder).segments;
+  eq('a standalone step keeps its plain name on screen', segs[0]!.name, 'Warmup');
+  eq('and is spoken the same way', spokenSegmentName(segs[0]!), 'Warmup');
+  eq('a rep still displays as before', segs[2]!.name, 'Rest 1');
+  eq('but is spoken with "number"', spokenSegmentName(segs[2]!), 'Rest number 1');
+  eq('second round', spokenSegmentName(segs[3]!), 'On number 2');
+  eq('the standalone step carries no repeat index', segs[0]!.repeatIndex, undefined);
+  eq('a rep knows which round it is', segs[3]!.repeatIndex, 2);
+  eq('and how many there are', segs[3]!.repeatTotal, 4);
+}
+
+console.log('\n--- what gets said at a boundary ---');
+{
+  // Inside a set the report of the rep just finished is dropped: on a 60s rep
+  // it is still talking when the next rep has started, and the next rep is the
+  // point. Only the new step is announced.
+  eq(
+    'a rep inside a set announces only what is next',
+    boundaryPhrases({ durationMs: 60_000, paceSecPerMile: 450, inRepeat: true }, 'Rest number 2').join(' | '),
+    'Rest number 2',
+  );
+  eq(
+    'a standalone step still reports its split first',
+    boundaryPhrases({ durationMs: 600_000, paceSecPerMile: 480, inRepeat: false }, 'Tempo').join(' | '),
+    '10 minutes, 8 flat pace | Tempo',
+  );
+  eq(
+    'with no measurable pace it states the time alone',
+    boundaryPhrases({ durationMs: 600_000, paceSecPerMile: null, inRepeat: false }, 'Tempo').join(' | '),
+    '10 minutes | Tempo',
+  );
+  eq(
+    'a free-run lap has nothing next, so it is just the split',
+    boundaryPhrases({ durationMs: 300_000, paceSecPerMile: 450, inRepeat: false }, null).join(' | '),
+    '5 minutes, 7 30 pace',
+  );
+  eq(
+    'a mis-tap gets no eulogy',
+    boundaryPhrases({ durationMs: 900, paceSecPerMile: 450, inRepeat: false }, 'Tempo').join(' | '),
+    'Tempo',
+  );
+  eq(
+    'the last segment of a set says nothing at all',
+    boundaryPhrases({ durationMs: 60_000, paceSecPerMile: 450, inRepeat: true }, null).length,
+    0,
+  );
 }
 
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURES`);

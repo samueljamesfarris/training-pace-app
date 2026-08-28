@@ -9,6 +9,21 @@ export interface SegmentDef {
   kind: SegmentKind;
   end: EndCondition;
   /**
+   * Which round of a repeat group this segment is, 1-based, and how many there
+   * are. Written by `resolveWorkout`, never authored and never stored in a
+   * workout — the builder edits blocks, and the repeat lives on the block.
+   *
+   * It exists because a rep inside a set is spoken differently from a step
+   * that stands alone: "Rest number 2" rather than "Rest 2", and no report of
+   * the rep that just ended, which on a 60-second rep is still talking when
+   * the next one starts. Absent on segments resolved before this existed, so
+   * an older session simply keeps the old wording.
+   */
+  repeatIndex?: number;
+  repeatTotal?: number;
+  /** The name without the index, for saying it out loud. */
+  baseName?: string;
+  /**
    * Optional goal pace in seconds per mile. Optional on purpose: it is absent
    * from every workout already stored in IndexedDB, and an optional field costs
    * no migration. The tolerance around it is a single setting rather than a
@@ -57,7 +72,19 @@ export function resolveWorkout(w: WorkoutDef): ResolvedWorkout {
     const times = Math.max(1, Math.floor(b.repeat));
     for (let i = 1; i <= times; i++) {
       for (const s of b.segments) {
-        segments.push({ ...s, name: times > 1 ? `${s.name} ${i}` : s.name });
+        // The displayed name is unchanged — "Rest 2" on screen, as before.
+        // The parts are carried alongside it for the voice to use.
+        segments.push(
+          times > 1
+            ? {
+                ...s,
+                name: `${s.name} ${i}`,
+                baseName: s.name,
+                repeatIndex: i,
+                repeatTotal: times,
+              }
+            : { ...s },
+        );
       }
     }
   }

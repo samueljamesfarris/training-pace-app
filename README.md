@@ -201,6 +201,8 @@ throttles the JS timer loop.
 
 | When | Sound |
 | --- | --- |
+| count-in, 3-2-1 | one short beep each, 1046 Hz |
+| the session starting | one long 1.5 s beep, 1568 Hz, under the word "start" |
 | 10 s before a segment ends | two short beeps, 784 Hz |
 | 3, 2, 1 s | one short beep each, 1046 Hz |
 | segment boundary / next segment | one long 1.5 s beep, 1568 Hz |
@@ -210,6 +212,15 @@ throttles the JS timer loop.
 
 Frequencies sit in the 750–1600 Hz band, where a phone speaker is loudest and
 wind noise is weakest.
+
+START counts in for three seconds before anything begins: three beeps, then
+the long tone with "Start" over it. The session's clock starts at the *end* of
+the count, from the same stored instant the beeps were scheduled against, so
+the count-in is never counted as workout time and the first rep is a full rep.
+A second tap during the count backs out of it, because a mis-tapped START
+should not cost a session. If the phone suspends JS through the count — which
+the tick makes near-impossible with the screen awake — the session is not
+started retroactively; it simply asks to be tapped again.
 
 Only timed segments can be cued ahead, because only they have a knowable end
 instant. A distance segment sounds its boundary on arrival, with no countdown —
@@ -245,10 +256,24 @@ cleared on every return to visible.
 
 | When | Said |
 | --- | --- |
-| segment boundary | the split that closed, then the segment starting — "30 seconds, 7 30 pace" / "On 2" |
+| the session starting | "Start", on the long tone at the end of the count-in |
+| boundary, inside a repeat set | only what is starting — "Rest number 2" |
+| boundary, a standalone step | the split that closed, then what is starting — "3 minutes, 7 30 pace" / "Tempo" |
 | manual lap | the lap's split and pace |
 | mile split, free runs | "Mile 1, 7 40" |
 | off target | "Ease up" or "Pick it up", after the falling beep |
+
+A rep inside a repeat set gets no report of the rep just finished. On a
+60-second rep that callout is still talking when the next rep has started, and
+by then the useful thing is what to do now — so inside a set it says only the
+new step. A standalone step is the opposite case: there the split *is* the
+point, so it keeps its time and pace. Either way, a segment under two seconds
+is a mis-tap and gets nothing.
+
+Reps are also spoken as a coach counts them — "Rest number 2", not "Rest 2",
+which read aloud is ambiguous with a segment actually named that. The screen
+still shows "Rest 2"; `resolveWorkout` carries the base name and the round
+index alongside the display name for the voice to use.
 
 Numbers are spoken the way a person says them: 8:04 becomes "8 oh 4", not
 "eight colon zero four". Splits truncate to match the clock on screen, and a

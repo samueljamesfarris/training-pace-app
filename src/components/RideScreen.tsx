@@ -229,6 +229,11 @@ export function RideScreen({
         ? 'text-too-slow'
         : '';
   const workout = session?.workout ?? null;
+  // Counting up from the stored end instant, like every other clock here, so a
+  // late tick shows the right number rather than one the counter believes.
+  const countingIn = ride.countdownEndsAt != null && !session;
+  const countInNumber =
+    ride.countdownEndsAt == null ? 0 : Math.max(0, Math.ceil((ride.countdownEndsAt - ride.now) / 1000));
   const sessionLive = !!session && session.status !== 'finished';
   // The most recently *closed* lap; the open one is still running.
   const closedLaps =
@@ -299,7 +304,18 @@ export function RideScreen({
           its own — so in landscape the numbers scroll here while the header
           and the controls stay put and reachable. */}
       <main className="grid min-h-0 flex-1 grid-cols-1 content-center gap-2 overflow-y-auto px-3 landscape:grid-cols-2 landscape:items-center">
-        {workout && session ? (
+        {countingIn ? (
+          /* The count-in owns the screen: nothing else on it is live yet, and
+             this is the number he is acting on. */
+          <section className="col-span-full flex flex-col items-center justify-center">
+            <div className="text-[clamp(6rem,40vw,18rem)] leading-[0.9] font-black tracking-tight text-go">
+              {countInNumber === 0 ? 'GO' : countInNumber}
+            </div>
+            <div className="text-sm font-bold tracking-widest text-muted uppercase">
+              {ride.selectedWorkout?.name ?? 'Free run'} starts
+            </div>
+          </section>
+        ) : workout && session ? (
           <SegmentHero
             session={session}
             now={ride.now}
@@ -426,7 +442,16 @@ export function RideScreen({
       </main>
 
       <footer className="p-3">
-        {!session && (
+        {countingIn && (
+          <button
+            onClick={ride.cancelCountdown}
+            className="h-[76px] w-full rounded-2xl border-2 border-line text-xl font-black text-ink active:bg-raised"
+          >
+            CANCEL
+          </button>
+        )}
+
+        {!session && !countingIn && (
           <>
             <div className="mb-2 flex justify-end gap-1">
               <button
