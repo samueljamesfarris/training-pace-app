@@ -112,7 +112,12 @@ name a raw palette color, so both themes stay consistent by construction.
 With a workout loaded, the segment countdown is the hero — that is the number
 driving the session, and where the audio cues will attach:
 
-1. Segment countdown, labeled with the phase and its position (`WORK · On 2 · 3/8`)
+1. Segment countdown, labeled with the phase and its position (`WORK · On 2 · 3/8`).
+   A distance segment counts in the unit its own length calls for — meters for
+   an 800, miles for a two-mile warmup — and keeps it for the whole segment.
+   Double-tap the number to count in the other unit; that choice then holds
+   for every distance segment until it is changed again, and is remembered
+   between launches. Nothing switches units on its own mid-countdown.
 2. On deck: the next segment and its length
 3. Pace in min/mile, and total elapsed
 4. Speed, average pace, distance

@@ -323,6 +323,8 @@ export function RideScreen({
             stale={!indoor && gps.stale}
             acquiring={gps.acquiring}
             measuring={!indoor}
+            unitChoice={ride.distanceUnit}
+            onChooseUnit={ride.setDistanceUnit}
             /* Indoors the goal pace is a stat of its own below, and the
                verdict beside it could only ever read NO PACE. */
             band={indoor ? undefined : <TargetBand ride={ride} />}

@@ -42,13 +42,14 @@ import {
   currentSegment,
 } from './segments';
 import { elapsedMs, wallClockAfter, type RawFix, type SessionRecord } from './types';
-import { metersToMiles, sanePaceSecPerMile } from './units';
+import { metersToMiles, sanePaceSecPerMile, type DistanceUnit } from './units';
 
 /** Pace to speak, or nothing — the same gate the display and the CSV use. */
 function spokenPaceFor(meters: number, ms: number): string | null {
   return speakablePace(sanePaceSecPerMile(meters, ms));
 }
 import { PRESET_WORKOUTS, resolveWorkout, type WorkoutDef } from './workouts';
+import { loadDistanceUnit, saveDistanceUnit } from './distanceUnit';
 import { loadMode, saveMode, type RideMode } from './mode';
 import { applyTheme, loadTheme, type Theme } from './theme';
 import {
@@ -124,6 +125,13 @@ export function useRide() {
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
   /** Outdoor or treadmill. Remembered, because it rarely changes day to day. */
   const [mode, setModeState] = useState<RideMode>(() => loadMode());
+  /**
+   * Miles or meters for a distance countdown, once he has said which. Null
+   * until then, and the segment's own length decides.
+   */
+  const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit | null>(() =>
+    loadDistanceUnit(),
+  );
   const [wakeLockEnabled, setWakeLockEnabled] = useState(true);
   const [wakeLockState, setWakeLockState] = useState<WakeLockState>('released');
   /** An unfinished session found in storage on load, awaiting resume/discard. */
@@ -220,6 +228,11 @@ export function useRide() {
     if (sessionLive && wakeLockEnabled) void wakeLock.acquire();
     else void wakeLock.release();
   }, [sessionLive, wakeLockEnabled, wakeLock]);
+
+  const setDistanceUnit = useCallback((unit: DistanceUnit) => {
+    setDistanceUnitState(unit);
+    saveDistanceUnit(unit);
+  }, []);
 
   const toggleTheme = useCallback(() => {
     setThemeState((t) => (t === 'dark' ? 'light' : 'dark'));
@@ -897,6 +910,8 @@ export function useRide() {
     removeWorkout,
     theme,
     toggleTheme,
+    distanceUnit,
+    setDistanceUnit,
     mode,
     setMode,
     indoor: mode === 'indoor',

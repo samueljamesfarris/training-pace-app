@@ -94,6 +94,11 @@ These were each found by a bug on a real ride. Don't undo them casually.
   the hero shows `--:--`, no split table, CSV column, goal delta or spoken cue
   may state one either — a segment reading `--:--` once grew a delta of
   +17269s beside it.
+- **A countdown's unit is fixed by the segment's length, never by what's
+  left.** Switching on the remainder turned a two-mile warmup into meters at
+  the halfway mark, mid-stride. Short reps still count in meters because the
+  *rep* is short. A double-tap on the number overrides it, and that choice
+  sticks.
 - **Countdowns round up, stopwatches truncate**, or the two clocks read a second
   apart. Spoken splits truncate too, or the voice says "29 seconds" beside a
   pill reading 0:28.

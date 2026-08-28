@@ -94,3 +94,39 @@ export function averageMph(meters: number, ms: number): number | null {
   if (ms <= 0 || meters <= 0) return null;
   return metersToMiles(meters) / (ms / 3_600_000);
 }
+
+/** Which unit a distance countdown is displayed in. */
+export type DistanceUnit = 'mi' | 'm';
+
+/**
+ * The unit a distance countdown counts in.
+ *
+ * Chosen from the segment's own length, once, and never from what is left. The
+ * version that switched on the remaining distance turned a two-mile warmup
+ * into a meters countdown at the halfway point: the number under the runner's
+ * eyes went from 1.00 to 1609 with nothing announcing it, which reads as a
+ * fault rather than a unit change. A countdown has to mean the same thing for
+ * its whole length.
+ *
+ * An explicit choice always wins, and holds until it is changed again.
+ */
+export function countdownUnit(
+  segmentMeters: number,
+  chosen: DistanceUnit | null,
+): DistanceUnit {
+  if (chosen) return chosen;
+  // A rep measured in hundreds of meters is counted in meters; anything a mile
+  // or longer is counted in miles. The same rule the segment chips use.
+  return segmentMeters >= METERS_PER_MILE ? 'mi' : 'm';
+}
+
+/** Distance remaining, in the unit asked for. Never negative. */
+export function formatRemaining(metersLeft: number, unit: DistanceUnit): string {
+  const left = Math.max(0, metersLeft);
+  return unit === 'mi' ? metersToMiles(left).toFixed(2) : String(Math.round(left));
+}
+
+/** The words under a distance countdown. */
+export function remainingLabel(unit: DistanceUnit): string {
+  return unit === 'mi' ? 'miles to go' : 'meters to go';
+}
