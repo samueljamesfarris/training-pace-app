@@ -48,8 +48,14 @@ being correct and dull over clever.
   flattens once, at session start.
 - `src/lib/audio.ts` — beeps scheduled on `AudioContext.currentTime`, derived
   from the same boundary instant the countdown displays.
-- `src/lib/speech.ts` — spoken cues layered on the beeps. Best-effort by
+- `src/lib/speech.ts` — spoken cues layered on the beeps, and the whole
+  vocabulary of the coaching layer: what is starting, how long, what to aim
+  for. Pure phrasing; nothing here knows about a session. Best-effort by
   design: iOS drops speech silently, so nothing may depend on it.
+- `src/lib/coach.ts` — *when* the cues that fall inside a segment fire: the
+  heads-up before it ends and the one progress call on a long one. Pure and
+  stateful like `offTarget.ts`. A cue is spent when its mark is crossed,
+  spoken or not, so a phone that slept through one stays quiet about it.
 - `src/lib/history.ts` — session summaries, CSV and text export. Pure, so the
   export formats are testable without a DOM.
 - `src/lib/offTarget.ts` — pace against a segment's goal. Pure and stateful:
@@ -180,6 +186,13 @@ and the reason to be careful before piling more on top.
   dropout.
 - **Spoken cues.** iOS speech differs from desktop — it goes quiet after
   interruptions, and voice, rate and timing may all feel wrong outdoors.
+- **How much the coaching layer should say.** The voice now runs the workout —
+  first instruction, a heads-up before every transition, length and goal of
+  what is starting, "last one", halfway pace, completion. It is budgeted to
+  finish before the next thing happens, but only a real set of 30-second rests
+  proves that. The COACHING toggle in the dev panel turns it back down to the
+  bare split-and-name behavior; whether the middle ground is wanted is the
+  question to ask after a run.
 - **Targets.** Whether ±5 s/mile is the right band, and whether a warning every
   twenty seconds helps or nags, is a question only a real rep answers.
 
@@ -203,7 +216,7 @@ and the reason to be careful before piling more on top.
 
 The repo carries everything: this file loads automatically, the commit messages
 carry the reasoning behind each decision, and `npm test` covers the engine,
-segments, workouts, speech, off-target and history.
+segments, workouts, speech, cue timing, off-target and history.
 
 What the repo cannot carry is the GPS logs — they are location data about a
 child's routes and stay gitignored. Sam exports them from a ride's detail
