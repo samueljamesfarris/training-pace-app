@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { deleteSession, getFixes, listSessions } from '../lib/db';
 import { completedSegments } from '../lib/segments';
 import { summarize, sortSessions, toCsv, toTextSummary } from '../lib/history';
+import { buildShareCard } from '../lib/shareCard';
+import { shareCardFile } from '../lib/shareImage';
 import { isIndoor, type SessionRecord } from '../lib/types';
 import { averageMph, formatClock, formatMiles, formatPace, sanePaceSecPerMile } from '../lib/units';
 
@@ -15,6 +17,16 @@ function when(ms: number) {
   });
 }
 
+/** Last resort when the share sheet isn't on offer: put it in Files. */
+function download(file: File): void {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Hand a string to the platform: share sheet if offered, download otherwise. */
 async function shareText(name: string, text: string, mime: string): Promise<string> {
   const file = new File([text], name, { type: mime });
@@ -26,13 +38,42 @@ async function shareText(name: string, text: string, mime: string): Promise<stri
       if ((e as { name?: string }).name === 'AbortError') return '';
     }
   }
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
+  download(file);
   return 'Downloaded.';
+}
+
+/**
+ * The splits as a picture, straight into the share sheet.
+ *
+ * Deliberately not `async`: iOS grants a click a short window in which
+ * `navigator.share` may be called, and the first `await` spends it — the sheet
+ * then never opens and nothing on screen says why. Drawing the card and
+ * encoding the PNG are both synchronous, so the whole path from tap to share
+ * runs in one task, and only the sheet's own result is waited on.
+ */
+function shareImage(rec: SessionRecord, setNote: (note: string | null) => void): void {
+  let file: File;
+  try {
+    file = shareCardFile(buildShareCard(rec));
+  } catch {
+    // A canvas that won't draw is not a reason to lose the session; the CSV
+    // and the text summary are both still there.
+    setNote('Could not draw the image; try the CSV.');
+    return;
+  }
+  if (navigator.canShare?.({ files: [file] })) {
+    navigator.share({ files: [file], title: file.name }).then(
+      () => setNote('Shared.'),
+      (e: { name?: string }) => {
+        if (e?.name === 'AbortError') return;
+        download(file);
+        setNote('Downloaded.');
+      },
+    );
+    return;
+  }
+  download(file);
+  setNote('Downloaded.');
 }
 
 function Detail({
@@ -154,6 +195,12 @@ function Detail({
         )}
 
         <div className="mt-4 flex flex-col gap-2">
+          <button
+            onClick={() => shareImage(rec, setNote)}
+            className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
+          >
+            Share table image
+          </button>
           <button
             onClick={async () => {
               try {

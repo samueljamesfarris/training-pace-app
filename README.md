@@ -134,16 +134,23 @@ Every session is kept locally. History lists them newest first; opening one
 shows the same summary and split table as the finish screen, with deltas where
 the segment had a goal.
 
-Three exports, all from the session detail: the summary as plain text to the
-clipboard, the splits as CSV, and the raw GPS log as JSON. CSV and JSON go
-through the share sheet where the platform offers it, so they land in Messages
-or iCloud rather than in Files.
+Four exports, all from the session detail: the summary as plain text to the
+clipboard, the split table as a PNG image, the splits as CSV, and the raw GPS
+log as JSON. All three files go through the share sheet where the platform
+offers it, so they land in Messages or iCloud rather than in Files.
+
+The image is drawn on a canvas rather than rasterized from the DOM — the
+headline numbers and one row per segment, with each goal delta marked against
+the same tolerance band the spoken cues use. It carries a fixed light palette
+instead of the theme tokens, because it leaves the app and should read the
+same whether it was exported before sunrise or after. Past twenty-four
+segments it keeps the start and the finish and says how many it dropped; the
+CSV always has them all.
 
 Raw fix logs are pruned beyond the twenty most recent sessions, so the JSON
 button reports the fix count it actually has, or says the log was pruned.
 Session records themselves are never pruned.
 
-Nothing is built for kilometers yet; everything assumes miles.
 Kilometers remain a future option; everything assumes miles today.
 
 ### Reliability behaviors
