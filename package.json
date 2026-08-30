@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host",
-    "test": "node --import ./tests/register.mjs tests/engine.test.ts && node --import ./tests/register.mjs tests/segments.test.ts && node --import ./tests/register.mjs tests/workouts.test.ts && node --import ./tests/register.mjs tests/speech.test.ts && node --import ./tests/register.mjs tests/offtarget.test.ts && node --import ./tests/register.mjs tests/history.test.ts && node --import ./tests/register.mjs tests/share.test.ts && node --import ./tests/register.mjs tests/units.test.ts && node --import ./tests/register.mjs tests/audio.test.ts",
+    "test": "node --import ./tests/register.mjs tests/engine.test.ts && node --import ./tests/register.mjs tests/segments.test.ts && node --import ./tests/register.mjs tests/workouts.test.ts && node --import ./tests/register.mjs tests/speech.test.ts && node --import ./tests/register.mjs tests/offtarget.test.ts && node --import ./tests/register.mjs tests/coach.test.ts && node --import ./tests/register.mjs tests/history.test.ts && node --import ./tests/register.mjs tests/share.test.ts && node --import ./tests/register.mjs tests/units.test.ts && node --import ./tests/register.mjs tests/audio.test.ts",
     "test:replay": "node --import ./tests/register.mjs tests/replay.test.ts"
   },
   "dependencies": {

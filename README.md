@@ -260,9 +260,11 @@ throttles the JS timer loop.
 | --- | --- |
 | count-in, 3-2-1 | one short beep each, 1046 Hz |
 | the session starting | one long 1.5 s beep, 1568 Hz |
-| 10 s before a segment ends | two short beeps, 784 Hz |
+| 10 s before a timed segment ends | two short beeps, 784 Hz |
+| 100–400 m before a distance segment ends | two short beeps, 784 Hz |
 | 3, 2, 1 s | one short beep each, 1046 Hz |
 | segment boundary / next segment | one long 1.5 s beep, 1568 Hz |
+| the workout completing | one long 1.5 s beep, 1568 Hz |
 | manual lap (free run) | one short chirp, 1318 Hz |
 | mile split (free run) | two quick chirps, 1318 Hz |
 | off target | a falling pair, 1174 → 880 Hz |
@@ -287,9 +289,19 @@ cold. It is the *first* tap that asks — which may be the one that arms
 the tick makes near-impossible with the screen awake — the session is not
 started retroactively; it simply asks to be tapped again.
 
-Only timed segments can be cued ahead, because only they have a knowable end
-instant. A distance segment sounds its boundary on arrival, with no countdown —
-there is no honest way to know when a distance will be reached.
+Only timed segments can be *scheduled* ahead, because only they have a knowable
+end instant. A distance segment sounds its boundary on arrival, with no
+countdown — there is no honest way to know when a distance will be reached.
+
+Its heads-up, though, is knowable, because the remaining distance is: a
+distance segment gets the same two-beep warning when it comes within 100 m
+(reps under 600 m), 200 m (under a mile) or 400 m (anything longer) of its end,
+played on arrival at that mark rather than scheduled. Before this an 800 m rep
+made no sound at all between its start and its finish.
+
+The end of the workout sounds too. The last segment never auto-advances — it
+runs into overtime until FINISH is tapped — so nothing else would have marked
+it, and a distance-ended workout finished in complete silence.
 
 Toggles, volume, and a test button for each cue live in the dev panel; the
 header has a mute.
@@ -319,20 +331,57 @@ call is best-effort — if speech dies mid-workout the beeps carry on unchanged.
 It is primed with a silent utterance on the START tap, and a wedged queue is
 cleared on every return to visible.
 
+What the voice is *for* is running the workout for someone with no coach and no
+reason to look at the phone: what is starting, how long it lasts, what to aim
+for, and a heads-up before each of those changes.
+
 | When | Said |
 | --- | --- |
-| boundary, inside a repeat set | only what is starting — "Rest number 2" |
-| boundary, a standalone step | the split that closed, then what is starting — "3 minutes, 7 30 pace" / "Tempo" |
+| the session starting | the first instruction — "Warmup, 2 miles, target 8 30" |
+| 10 s / 200 m before a segment ends | what comes after it — "10 seconds, then Rest number 2" |
+| the same, on the last segment | "Last 10 seconds" |
+| boundary, inside a repeat set | what is starting — "Rest number 2, 30 seconds" |
+| boundary, a standalone step | the split that closed, then what is starting — "3 minutes, 7 30 pace" / "Tempo, 3 miles, target 7 30" |
+| boundary, into the last rep of a set | "Last one", then the instruction |
+| boundary, into the last segment | "Last segment", then the instruction |
+| halfway through a long segment | "Halfway, 7 30 pace" |
+| off target | "Ease up, target 7 30" / "Pick it up, target 7 30" |
+| pause and resume | "Paused" / "Resuming, On number 3" |
+| the workout completing | "Workout complete", the total, "Tap finish" |
 | manual lap | the lap's split and pace |
 | mile split, free runs | "Mile 1, 7 40" |
-| off target | "Ease up" or "Pick it up", after the falling beep |
 
-A rep inside a repeat set gets no report of the rep just finished. On a
-60-second rep that callout is still talking when the next rep has started, and
-by then the useful thing is what to do now — so inside a set it says only the
-new step. A standalone step is the opposite case: there the split *is* the
-point, so it keeps its time and pace. Either way, a segment under two seconds
-is a mis-tap and gets nothing.
+Everything is budgeted against the seconds actually available. A rep inside a
+repeat set gets no report of the rep just finished: on a 60-second rep that
+callout is still talking when the next rep has started, and by then the useful
+thing is what to do now. A standalone step is the opposite case — there the
+split *is* the point, so it keeps its time and pace. Either way, a segment
+under two seconds is a mis-tap and gets nothing.
+
+The goal pace is stated when it *changes*, not on every rep: on a set of eight
+the target is the same eight times, and by the third the voice is only using up
+the seconds after the tone. A segment whose name already carries its length —
+"800m", "Mile" — does not have it read back ("800 meters number 2, 800 meters"
+is one fact twice), and a name like `800m` is read as "800 meters" rather than
+"eight hundred em".
+
+"Last one" and "Last segment" lead and stand alone, because they change how the
+next few minutes are run and they survive being cut off by whatever comes next.
+
+The heads-up and the halfway call are driven off the render tick rather than
+scheduled, since neither is knowable in advance, and both are *spent* the
+moment their mark is crossed whether or not they were spoken. If the phone
+slept through the last ten seconds of a rest, "10 seconds, then On number 3"
+arriving two seconds late is worse than silence — the beeps were on the audio
+clock and already told the truth. A segment shorter than twice its own lead
+gets no heads-up at all: announcing the end of a fifteen-second rest is talking
+through the rest. The halfway call needs four minutes or 1200 m, since a
+two-minute rep is over before wondering about it is useful.
+
+All of that guiding layer is one dev-panel toggle, COACHING. Off leaves the
+bare report — the split that just closed, and the name of what is next — which
+is all this app used to say. How much talking helps outdoors is a question only
+a real rep answers.
 
 Reps are also spoken as a coach counts them — "Rest number 2", not "Rest 2",
 which read aloud is ambiguous with a segment actually named that. The screen

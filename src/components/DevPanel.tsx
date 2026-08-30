@@ -403,6 +403,17 @@ export function DevPanel({
             on={ride.speech.enabled}
             onChange={(v) => ride.applySpeech({ ...ride.speech, enabled: v })}
           />
+          <Toggle
+            label={ride.speech.coaching ? 'COACHING ON' : 'coaching off'}
+            on={ride.speech.coaching}
+            onChange={(v) => ride.applySpeech({ ...ride.speech, coaching: v })}
+          />
+          <p className="mb-2 text-xs text-muted">
+            Coaching adds the guiding layer: a heads-up before every transition,
+            the length and goal of what is starting, a halfway pace on a long
+            segment, and the start and finish callouts. Off leaves the bare
+            report — the split just closed, and the name of what is next.
+          </p>
           <Slider
             label="Voice rate"
             value={ride.speech.rate}
@@ -422,7 +433,13 @@ export function DevPanel({
             format={(v) => `${Math.round(v * 100)}%`}
           />
           <button
-            onClick={() => ride.previewSpeech('On 2. 1 30, 7 oh 4 pace.')}
+            onClick={() =>
+              ride.previewSpeech(
+                ride.speech.coaching
+                  ? '10 seconds, then Rest number 2. On number 3, 2 minutes, target 7 30.'
+                  : 'On 2. 1 30, 7 oh 4 pace.',
+              )
+            }
             className="mt-1 w-full rounded-lg border border-line py-2 text-sm font-bold text-ink"
           >
             Test voice
