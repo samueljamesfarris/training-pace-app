@@ -1,4 +1,18 @@
-import { KINDS, MILE, resolveWorkout, type SegmentDef, type WorkoutDef } from './workouts';
+import {
+  inferPlan,
+  KIND_DEFAULT_NAME,
+  KINDS,
+  MILE,
+  planToBlocks,
+  resolveWorkout,
+  samePlan,
+  type EndCondition,
+  type MainSection,
+  type RepeatStep,
+  type SegmentDef,
+  type WorkoutDef,
+  type WorkoutPlan,
+} from './workouts';
 
 /**
  * Workouts as links.
@@ -15,15 +29,19 @@ import { KINDS, MILE, resolveWorkout, type SegmentDef, type WorkoutDef } from '.
  * comfortably inside the cap below.
  */
 
-/** The wire form. Deliberately terse — every byte shows up in the message. */
-interface WireSegment {
-  n: string;
-  /** Index into KINDS. */
-  k: number;
-  /** Seconds, for a timed segment. Exactly one of t/d is present. */
+/** An end condition. Exactly one of t/d is present. */
+interface WireEnd {
+  /** Seconds, for a timed segment. */
   t?: number;
   /** Meters, for a distance segment. */
   d?: number;
+}
+
+/** The wire form. Deliberately terse — every byte shows up in the message. */
+interface WireSegment extends WireEnd {
+  n: string;
+  /** Index into KINDS. */
+  k: number;
   /** Goal pace, seconds per mile. */
   p?: number;
 }
@@ -31,6 +49,26 @@ interface WireSegment {
 interface WireBlock {
   r: number;
   s: WireSegment[];
+  /** `dropFinalStep`: the set's closing recovery is skipped on its last round. */
+  x?: 1;
+}
+
+/** A repeat step, with the two fields that make a ladder a ladder. */
+interface WireStep extends WireSegment {
+  /** `perRound`, one end condition per round. */
+  pr?: WireEnd[];
+  /** `matchPrevious`. */
+  mp?: 1;
+}
+
+interface WirePlan {
+  /** Warmup and cooldown, absent when the workout has none. */
+  w?: WireSegment;
+  c?: WireSegment;
+  /** The main section: `k` 0 is steady, 1 is a repeat set. */
+  m:
+    | { k: 0; s: WireSegment }
+    | { k: 1; r: number; s: WireStep[]; x?: 1 };
 }
 
 interface WirePayload {
@@ -38,6 +76,16 @@ interface WirePayload {
   v: number;
   n: string;
   b: WireBlock[];
+  /**
+   * The structured form, carried only when the blocks alone can't say it —
+   * a ladder, in practice. Everything else is recovered by `inferPlan` on
+   * arrival, so the common link is exactly as short as it always was.
+   *
+   * An extra key inside a v1 payload rather than a v2 format, deliberately:
+   * an app built before plans existed reads `v`, `n` and `b`, ignores this
+   * entirely, and still runs the workout correctly.
+   */
+  pl?: WirePlan;
 }
 
 const VERSION = 1;
@@ -88,6 +136,61 @@ function base64UrlDecode(text: string): string | null {
   }
 }
 
+function wireEnd(end: EndCondition): WireEnd {
+  // A mile is 1609.344 m, so meters keep their fraction: rounding here would
+  // quietly turn a shared mile rep into something else.
+  return end.type === 'time'
+    ? { t: Math.round(end.seconds) }
+    : { d: Math.round(end.meters * 1000) / 1000 };
+}
+
+function wireSegment(s: SegmentDef): WireSegment {
+  const seg: WireSegment = {
+    n: s.name,
+    k: Math.max(0, KINDS.indexOf(s.kind)),
+    ...wireEnd(s.end),
+  };
+  if (s.targetPaceSecPerMile != null) seg.p = Math.round(s.targetPaceSecPerMile);
+  return seg;
+}
+
+function wireStep(s: RepeatStep): WireStep {
+  const step: WireStep = wireSegment(s);
+  if (s.perRound && s.perRound.length > 0) step.pr = s.perRound.map(wireEnd);
+  if (s.matchPrevious) step.mp = 1;
+  return step;
+}
+
+function wirePlan(plan: WorkoutPlan): WirePlan {
+  const out: WirePlan = {
+    m:
+      plan.main.kind === 'steady'
+        ? { k: 0, s: wireSegment(plan.main.segment) }
+        : {
+            k: 1,
+            r: Math.max(1, Math.round(plan.main.rounds)),
+            s: plan.main.steps.map(wireStep),
+            ...(plan.main.dropFinalRecovery ? { x: 1 as const } : {}),
+          },
+  };
+  if (plan.warmup) out.w = wireSegment(plan.warmup);
+  if (plan.cooldown) out.c = wireSegment(plan.cooldown);
+  return out;
+}
+
+/**
+ * Whether the plan has to ride along, or the blocks already imply it.
+ *
+ * `inferPlan` recovers a warmup, one main section and a cooldown from the
+ * blocks alone, which covers everything except a ladder — so a link only pays
+ * for its structure when the structure is genuinely unguessable.
+ */
+function planWorthSending(w: WorkoutDef): WorkoutPlan | null {
+  if (!w.plan) return null;
+  const inferred = inferPlan(w.blocks);
+  return inferred && samePlan(inferred, w.plan) ? null : w.plan;
+}
+
 /** The encoded payload for a workout, without any URL around it. */
 export function encodeWorkout(w: WorkoutDef): string {
   const payload: WirePayload = {
@@ -95,17 +198,12 @@ export function encodeWorkout(w: WorkoutDef): string {
     n: w.name,
     b: w.blocks.map((b) => ({
       r: Math.max(1, Math.round(b.repeat)),
-      s: b.segments.map((s) => {
-        const seg: WireSegment = { n: s.name, k: Math.max(0, KINDS.indexOf(s.kind)) };
-        if (s.end.type === 'time') seg.t = Math.round(s.end.seconds);
-        // A mile is 1609.344 m, so meters keep their fraction: rounding here
-        // would quietly turn a shared mile rep into something else.
-        else seg.d = Math.round(s.end.meters * 1000) / 1000;
-        if (s.targetPaceSecPerMile != null) seg.p = Math.round(s.targetPaceSecPerMile);
-        return seg;
-      }),
+      s: b.segments.map(wireSegment),
+      ...(b.dropFinalStep ? { x: 1 as const } : {}),
     })),
   };
+  const plan = planWorthSending(w);
+  if (plan) payload.pl = wirePlan(plan);
   return base64UrlEncode(JSON.stringify(payload));
 }
 
@@ -161,6 +259,99 @@ export type DecodeResult =
   | { ok: false; reason: DecodeFailure };
 
 /**
+ * One end condition off the wire, or null.
+ *
+ * Exactly one of t/d — both, or neither, is a corrupt payload — and each is
+ * rejected out of range rather than clamped, because importing a workout that
+ * differs from the one that was sent is worse than importing none.
+ */
+function readEnd(raw: Record<string, unknown>): EndCondition | null {
+  const timed = raw.t != null;
+  const measured = raw.d != null;
+  if (timed === measured) return null;
+  if (timed) {
+    if (!inRange(raw.t, LIMITS.seconds)) return null;
+    return { type: 'time', seconds: Math.round(raw.t as number) };
+  }
+  if (!inRange(raw.d, LIMITS.meters)) return null;
+  return { type: 'distance', meters: Math.round((raw.d as number) * 1000) / 1000 };
+}
+
+function readSegment(raw: unknown): SegmentDef | null {
+  if (!isRecord(raw)) return null;
+  const kind = KINDS[typeof raw.k === 'number' ? raw.k : -1];
+  if (!kind) return null;
+  const end = readEnd(raw);
+  if (!end) return null;
+
+  // The fallback is the app's own default name, not the bare kind: a segment
+  // that arrives nameless should read "Warmup", the way one built here does.
+  const seg: SegmentDef = { name: cleanName(raw.n, KIND_DEFAULT_NAME[kind]), kind, end };
+  if (raw.p != null) {
+    if (!inRange(raw.p, LIMITS.targetSecPerMile)) return null;
+    seg.targetPaceSecPerMile = Math.round(raw.p);
+  }
+  return seg;
+}
+
+/**
+ * The structured form off the wire, or null.
+ *
+ * A plan is advisory: the blocks are what the app actually runs. So anything
+ * wrong here means the plan is dropped and the workout still imports — the
+ * recipient gets it in the advanced editor rather than not at all.
+ */
+function readPlan(raw: unknown, rounds: { min: number; max: number }): WorkoutPlan | null {
+  if (!isRecord(raw)) return null;
+  if (!isRecord(raw.m)) return null;
+
+  const optional = (v: unknown): SegmentDef | null | false =>
+    v == null ? null : (readSegment(v) ?? false);
+  const warmup = optional(raw.w);
+  const cooldown = optional(raw.c);
+  if (warmup === false || cooldown === false) return null;
+
+  let main: MainSection;
+  if (raw.m.k === 0) {
+    const segment = readSegment(raw.m.s);
+    if (!segment) return null;
+    main = { kind: 'steady', segment };
+  } else if (raw.m.k === 1) {
+    if (!inRange(raw.m.r, rounds)) return null;
+    if (!Array.isArray(raw.m.s)) return null;
+    if (raw.m.s.length < 1 || raw.m.s.length > LIMITS.segmentsPerBlock) return null;
+
+    const count = Math.round(raw.m.r);
+    const steps: RepeatStep[] = [];
+    for (const rawStep of raw.m.s) {
+      const base = readSegment(rawStep);
+      if (!base || !isRecord(rawStep)) return null;
+      const step: RepeatStep = base;
+      if (rawStep.pr != null) {
+        // A ladder that doesn't have a rung for every round would run some
+        // round off the end of its own list.
+        if (!Array.isArray(rawStep.pr) || rawStep.pr.length !== count) return null;
+        const perRound: EndCondition[] = [];
+        for (const rawEnd of rawStep.pr) {
+          if (!isRecord(rawEnd)) return null;
+          const end = readEnd(rawEnd);
+          if (!end) return null;
+          perRound.push(end);
+        }
+        step.perRound = perRound;
+      }
+      if (rawStep.mp != null) step.matchPrevious = true;
+      steps.push(step);
+    }
+    main = { kind: 'repeat', rounds: count, steps, dropFinalRecovery: raw.m.x != null };
+  } else {
+    return null;
+  }
+
+  return { warmup, cooldown, main };
+}
+
+/**
  * Turn a link back into a workout, or say why it isn't one.
  *
  * The returned workout has no id: it is a proposal, not a stored record. The
@@ -200,31 +391,16 @@ export function decodeWorkout(input: string): DecodeResult {
 
     const segments: SegmentDef[] = [];
     for (const rawSeg of rawBlock.s) {
-      if (!isRecord(rawSeg)) return { ok: false, reason: 'invalid' };
-      const kind = KINDS[typeof rawSeg.k === 'number' ? rawSeg.k : -1];
-      if (!kind) return { ok: false, reason: 'invalid' };
-
-      // Exactly one end condition. Both, or neither, is a corrupt payload.
-      const timed = rawSeg.t != null;
-      const measured = rawSeg.d != null;
-      if (timed === measured) return { ok: false, reason: 'invalid' };
-      if (timed && !inRange(rawSeg.t, LIMITS.seconds)) return { ok: false, reason: 'invalid' };
-      if (measured && !inRange(rawSeg.d, LIMITS.meters)) return { ok: false, reason: 'invalid' };
-
-      const seg: SegmentDef = {
-        name: cleanName(rawSeg.n, kind),
-        kind,
-        end: timed
-          ? { type: 'time', seconds: Math.round(rawSeg.t as number) }
-          : { type: 'distance', meters: Math.round((rawSeg.d as number) * 1000) / 1000 },
-      };
-      if (rawSeg.p != null) {
-        if (!inRange(rawSeg.p, LIMITS.targetSecPerMile)) return { ok: false, reason: 'invalid' };
-        seg.targetPaceSecPerMile = Math.round(rawSeg.p);
-      }
+      const seg = readSegment(rawSeg);
+      if (!seg) return { ok: false, reason: 'invalid' };
       segments.push(seg);
     }
-    blocks.push({ id: '', repeat: Math.round(rawBlock.r), segments });
+    blocks.push({
+      id: '',
+      repeat: Math.round(rawBlock.r),
+      segments,
+      ...(rawBlock.x != null ? { dropFinalStep: true } : {}),
+    });
   }
 
   const workout: WorkoutDef = {
@@ -236,6 +412,26 @@ export function decodeWorkout(input: string): DecodeResult {
   // payload well inside every other limit can still expand without bound.
   if (resolveWorkout(workout).segments.length > LIMITS.resolvedSegments) {
     return { ok: false, reason: 'invalid' };
+  }
+
+  /*
+   * The structure, if any survives scrutiny.
+   *
+   * The blocks are what runs; the plan only decides which editor opens. So a
+   * plan is attached only when it compiles to exactly the workout that came
+   * with it — which also means a hostile link can't ship innocuous blocks
+   * beside a plan that would rewrite them the moment anything is saved.
+   */
+  const plan =
+    parsed.pl != null
+      ? readPlan(parsed.pl, LIMITS.repeat)
+      : inferPlan(blocks);
+  if (
+    plan &&
+    JSON.stringify(resolveWorkout({ ...workout, blocks: planToBlocks(plan) }).segments) ===
+      JSON.stringify(resolveWorkout(workout).segments)
+  ) {
+    workout.plan = plan;
   }
   return { ok: true, workout };
 }
