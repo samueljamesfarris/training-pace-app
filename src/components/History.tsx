@@ -11,8 +11,9 @@ import {
 } from '../lib/history';
 import { buildShareCard } from '../lib/shareCard';
 import { shareCardFile } from '../lib/shareImage';
+import { shareFile, type ShareOutcome } from '../lib/shareFile';
 import { buildXlsx } from '../lib/xlsx';
-import { isIndoor, type SessionRecord } from '../lib/types';
+import { isIndoor, type RawFix, type SessionRecord } from '../lib/types';
 import { averageMph, formatClock, formatMiles, formatPace, sanePaceSecPerMile } from '../lib/units';
 
 function when(ms: number) {
@@ -25,65 +26,14 @@ function when(ms: number) {
   });
 }
 
-/** Last resort when the share sheet isn't on offer: put it in Files. */
-function download(file: File): void {
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file.name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/** Hand a file to the platform: share sheet if offered, download otherwise. */
-async function shareFile(file: File): Promise<string> {
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: file.name });
-      return 'Shared.';
-    } catch (e) {
-      if ((e as { name?: string }).name === 'AbortError') return '';
-    }
-  }
-  download(file);
-  return 'Downloaded.';
-}
-
 /** Excel's, and the one iOS matches against to offer Numbers. */
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-/**
- * The splits as a picture, straight into the share sheet.
- *
- * Deliberately not `async`: iOS grants a click a short window in which
- * `navigator.share` may be called, and the first `await` spends it — the sheet
- * then never opens and nothing on screen says why. Drawing the card and
- * encoding the PNG are both synchronous, so the whole path from tap to share
- * runs in one task, and only the sheet's own result is waited on.
- */
-function shareImage(rec: SessionRecord, setNote: (note: string | null) => void): void {
-  let file: File;
-  try {
-    file = shareCardFile(buildShareCard(rec));
-  } catch {
-    // A canvas that won't draw is not a reason to lose the session; the CSV
-    // and the text summary are both still there.
-    setNote('Could not draw the image; try the CSV.');
-    return;
-  }
-  if (navigator.canShare?.({ files: [file] })) {
-    navigator.share({ files: [file], title: file.name }).then(
-      () => setNote('Shared.'),
-      (e: { name?: string }) => {
-        if (e?.name === 'AbortError') return;
-        download(file);
-        setNote('Downloaded.');
-      },
-    );
-    return;
-  }
-  download(file);
-  setNote('Downloaded.');
+/** What an export's outcome reads as on screen. A cancel says nothing. */
+function noteFor(outcome: ShareOutcome): string | null {
+  if (outcome === 'shared') return 'Shared.';
+  if (outcome === 'downloaded') return 'Downloaded.';
+  return null;
 }
 
 function Detail({
@@ -97,13 +47,19 @@ function Detail({
 }) {
   const [note, setNote] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [fixCount, setFixCount] = useState<number | null>(null);
+  const [fixes, setFixes] = useState<RawFix[] | null>(null);
 
   // Raw logs are pruned beyond the most recent rides, so whether this one still
-  // has fixes is a fact to look up, not to assume.
+  // has fixes is a fact to look up, not to assume. The fixes themselves are
+  // kept, not just their count: reading them is the only asynchronous step in
+  // exporting the log, and doing it here means the export itself can be
+  // synchronous and hold on to the tap that iOS requires for a share sheet.
   useEffect(() => {
-    void getFixes(rec.id).then((f) => setFixCount(f.length));
+    setFixes(null);
+    void getFixes(rec.id).then(setFixes);
   }, [rec.id]);
+
+  const fixCount = fixes?.length ?? null;
 
   const s = summarize(rec);
   const indoor = isIndoor(rec);
@@ -206,7 +162,18 @@ function Detail({
 
         <div className="mt-4 flex flex-col gap-2">
           <button
-            onClick={() => shareImage(rec, setNote)}
+            onClick={() => {
+              let file: File;
+              try {
+                file = shareCardFile(buildShareCard(rec));
+              } catch {
+                // A canvas that won't draw is not a reason to lose the
+                // session; the CSV and the text summary are both still there.
+                setNote('Could not draw the image; try the CSV.');
+                return;
+              }
+              shareFile(file, (outcome) => setNote(noteFor(outcome)));
+            }}
             className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
           >
             Share table image
@@ -225,11 +192,10 @@ function Detail({
             Copy summary
           </button>
           <button
-            onClick={async () =>
-              setNote(
-                (await shareFile(
-                  new File([toCsv(rec)], `${exportBaseName(rec)}.csv`, { type: 'text/csv' }),
-                )) || null,
+            onClick={() =>
+              shareFile(
+                new File([toCsv(rec)], `${exportBaseName(rec)}.csv`, { type: 'text/csv' }),
+                (outcome) => setNote(noteFor(outcome)),
               )
             }
             className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
@@ -237,15 +203,14 @@ function Detail({
             Export CSV
           </button>
           <button
-            onClick={async () =>
-              setNote(
-                (await shareFile(
-                  new File(
-                    [buildXlsx(toWorkbook(rec), rec.startedAt)],
-                    `${exportBaseName(rec)}.xlsx`,
-                    { type: XLSX_MIME },
-                  ),
-                )) || null,
+            onClick={() =>
+              shareFile(
+                new File(
+                  [buildXlsx(toWorkbook(rec), rec.startedAt)],
+                  `${exportBaseName(rec)}.xlsx`,
+                  { type: XLSX_MIME },
+                ),
+                (outcome) => setNote(noteFor(outcome)),
               )
             }
             className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
@@ -253,18 +218,17 @@ function Detail({
             Export Excel
           </button>
           <button
-            disabled={indoor || fixCount === 0}
-            onClick={async () => {
-              const fixes = await getFixes(rec.id);
+            disabled={indoor || fixes == null || fixes.length === 0}
+            onClick={() => {
+              if (!fixes) return;
               // The raw log keeps the session id in its name: it is replayed
               // against the engine from `tests/logs/`, where the id is what
               // ties a file back to the ride it came from.
-              setNote(
-                (await shareFile(
-                  new File([JSON.stringify(fixes)], `${rec.id}-fixes.json`, {
-                    type: 'application/json',
-                  }),
-                )) || null,
+              shareFile(
+                new File([JSON.stringify(fixes)], `${rec.id}-fixes.json`, {
+                  type: 'application/json',
+                }),
+                (outcome) => setNote(noteFor(outcome)),
               );
             }}
             className="h-[56px] rounded-2xl bg-next text-base font-bold text-next-ink disabled:opacity-40"

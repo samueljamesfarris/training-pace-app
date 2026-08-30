@@ -113,6 +113,12 @@ These were each found by a bug on a real ride. Don't undo them casually.
   pill reading 0:28.
 - **Resume excludes the dead gap** using the `lastSeenAt` heartbeat, so a crash
   doesn't inflate the workout.
+- **Nothing may be awaited between a tap and `navigator.share`.** iOS gives the
+  tap a short window in which a share sheet may be opened, and the first
+  `await` spends it: the sheet never appears, nothing throws, and the screen
+  says nothing. So `shareFile` takes a file that is already built, and anything
+  a share needs that has to be fetched — the raw log's IndexedDB read above all
+  — is fetched when the screen opens, not when the button is pressed.
 
 ## Conventions
 

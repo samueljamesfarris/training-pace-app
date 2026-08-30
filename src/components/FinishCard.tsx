@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { completedSegments } from '../lib/segments';
-import { elapsedMs, isIndoor } from '../lib/types';
+import { shareFile } from '../lib/shareFile';
+import { elapsedMs, isIndoor, type RawFix } from '../lib/types';
 import {
   averageMph,
   formatClock,
@@ -25,7 +26,23 @@ export function FinishCard({
 }) {
   const { session } = ride;
   const [note, setNote] = useState<string | null>(null);
-  if (!session || session.status !== 'finished') return null;
+  const [fixes, setFixes] = useState<RawFix[] | null>(null);
+  const finished = session?.status === 'finished';
+
+  // Fetched on arrival rather than on the tap. Reading the log is the only
+  // asynchronous step in exporting it, and an `await` inside the handler
+  // spends the user activation iOS requires before it will open a share sheet.
+  useEffect(() => {
+    // Cleared back to null between sessions, or the next ride's finish screen
+    // would offer the previous ride's log until its own read came back.
+    if (!finished) {
+      setFixes(null);
+      return;
+    }
+    void ride.exportFixes().then(setFixes);
+  }, [finished, ride.exportFixes]);
+
+  if (!session || !finished) return null;
 
   const indoor = isIndoor(session);
   const total = elapsedMs(session, session.finishedAt ?? Date.now());
@@ -49,38 +66,29 @@ export function FinishCard({
   /**
    * A download on iOS lands in Files and then has to be found again. The share
    * sheet puts the log straight into Messages, Mail or iCloud from the finish
-   * screen, which is where it actually needs to go. Falls back to the download
-   * wherever sharing a file isn't offered.
+   * screen, which is where it actually needs to go.
+   *
+   * Synchronous from the tap to the share call, which is why the fixes were
+   * fetched above rather than here.
    */
-  async function exportLog() {
-    const fixes = await ride.exportFixes();
+  function exportLog() {
+    // Null is the read still being in flight, which is a different thing from
+    // an empty log and must not be reported as one.
+    if (fixes == null) {
+      setNote('Still reading the log — try that again in a moment.');
+      return;
+    }
     if (fixes.length === 0) {
       setNote('No fixes were logged in that session.');
       return;
     }
-    const name = `${session!.id}-fixes.json`;
-    const json = JSON.stringify(fixes);
-    const file = new File([json], name, { type: 'application/json' });
-
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: name });
-        setNote(`Shared ${fixes.length} raw fixes.`);
-        return;
-      } catch (e) {
-        // A canceled share is not a failure; anything else falls through to
-        // the download rather than leaving him with no way to get the log off.
-        if ((e as { name?: string }).name === 'AbortError') return;
-      }
-    }
-
-    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-    setNote(`Exported ${fixes.length} raw fixes.`);
+    const file = new File([JSON.stringify(fixes)], `${session!.id}-fixes.json`, {
+      type: 'application/json',
+    });
+    shareFile(file, (outcome) => {
+      if (outcome === 'canceled') return;
+      setNote(`${outcome === 'shared' ? 'Shared' : 'Exported'} ${fixes.length} raw fixes.`);
+    });
   }
 
   return (
@@ -188,7 +196,7 @@ export function FinishCard({
                 fixes, so indoors the button isn't offered. */}
             {!indoor && (
               <button
-                onClick={() => void exportLog()}
+                onClick={exportLog}
                 className="h-[56px] min-w-0 flex-1 rounded-2xl bg-next text-base font-bold text-next-ink"
               >
                 Export raw log
