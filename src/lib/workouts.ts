@@ -437,6 +437,57 @@ export function samePlan(a: WorkoutPlan, b: WorkoutPlan): boolean {
   });
 }
 
+/**
+ * One step as it reads in a summary: "800m", "Rest 0:30", "Tempo 3 mi @ 6:20".
+ *
+ * A step named for its own measurement — a ladder rung — prints that once.
+ * "400m 400m" is not more informative than "400m".
+ */
+function stepSummary(s: SegmentDef, end: EndCondition = s.end): string {
+  const measure = endLabel(end);
+  const base = s.name === measure ? measure : `${s.name} ${measure}`;
+  return s.targetPaceSecPerMile != null
+    ? `${base} @ ${formatClock(s.targetPaceSecPerMile * 1000)}`
+    : base;
+}
+
+/**
+ * A plan in three lines, for a card in the picker.
+ *
+ * The point of the structure is that a workout can be read at a glance
+ * without expanding it: what he warms up with, what the session actually is,
+ * and what he finishes on. A flat run of chips said all of it and none of it.
+ */
+export function describePlan(plan: WorkoutPlan): {
+  warmup: string | null;
+  main: string;
+  cooldown: string | null;
+} {
+  const main = plan.main;
+  let text: string;
+
+  if (main.kind === 'steady') {
+    text = stepSummary(main.segment);
+  } else {
+    const rungs = main.steps.find((s) => s.perRound)?.perRound;
+    if (rungs) {
+      // A ladder is its rungs. The count is right there to be counted.
+      text = rungs.map((e) => endLabel(e)).join(' / ');
+      const rest = main.steps.filter((s) => !s.perRound);
+      if (rest.some((s) => s.matchPrevious)) text += ', equal recovery';
+      else if (rest.length > 0) text += ` + ${rest.map((s) => stepSummary(s)).join(' + ')}`;
+    } else {
+      text = `${main.rounds} × ${main.steps.map((s) => stepSummary(s)).join(' + ')}`;
+    }
+  }
+
+  return {
+    warmup: plan.warmup ? stepSummary(plan.warmup) : null,
+    main: text,
+    cooldown: plan.cooldown ? stepSummary(plan.cooldown) : null,
+  };
+}
+
 /** A workout built from a plan, with the blocks compiled to match. */
 export function workoutFromPlan(
   plan: WorkoutPlan,

@@ -18,8 +18,36 @@ a flat segment list walked from wall-clock timestamps, auto-advance, the manual
 next-segment override, free-run laps, and a segment table on finish.
 
 Plus the workout builder (step 6): create, edit, duplicate and delete workouts,
-stored in IndexedDB. Presets are read-only — "Duplicate" is how you make one
+stored in IndexedDB. Presets are read-only — "Customize" is how you make one
 yours.
+
+### The shape of a workout
+
+Every workout is a warm up, one main section and a cool down. The warmup and
+the cooldown are optional; the main section is the workout, and it is one of
+two things: a steady piece measured in time or distance, or a set of repeats.
+
+The builder is those three cards. Repeats add what a flat list of steps could
+never say: a step can **vary by round**, which turns its single field into one
+per round and makes the set a ladder, and a recovery can **match the step
+above**, so a ladder's jog mirrors whatever rung it followed. A checkbox ends
+the set on the rep rather than on a closing recovery — six 800s used to finish
+with a 400m jog to nowhere.
+
+Anything the shape can't describe — two different sets, a warmup with strides
+in it — opens in **Advanced**, which is the same list-of-blocks editor the app
+always had. Coming back re-reads the steps as a structure, and keeps the
+structure it left with if nothing was edited.
+
+The picker shows all of this without expanding anything:
+
+```
+Tempo 2 / 3 / 1                      PRESET
+WARM UP    Warmup 2 mi
+MAIN       Tempo 3 mi
+COOL DOWN  Cooldown 1 mi
+3 segments · 6.00 mi
+```
 
 ### Indoor and outdoor
 
@@ -59,8 +87,8 @@ itself again to someone who read the old one.
 
 Every workout card has Share, which builds a link carrying the whole workout
 in the URL's fragment — no server, no account, and a link that still opens an
-installed app offline. The longest preset comes to under 600 characters, so it
-sends in a text message. Sharing goes through the platform share sheet where
+installed app offline. An ordinary workout comes to about 160 characters and
+the longest preset to about 700, so either sends in a text message. Sharing goes through the platform share sheet where
 there is one, then the clipboard, then the raw link on screen.
 
 Opening a link *offers* the workout rather than installing it, and accepting
@@ -78,10 +106,21 @@ with the link put on the clipboard for them, rather than sending them back to
 the message to fish it out. Where storage is shared, which is everywhere else,
 the same block appears as a quiet aside instead of a warning.
 
+A link carries the workout's structure only when the blocks can't imply it —
+a ladder, in practice — since `inferPlan` recovers the rest on arrival, and
+every byte of a plan lands in somebody's text message. It rides as an extra key
+inside the same payload rather than a new format version, so an app built
+before the structure existed ignores it and still runs the workout correctly.
+
 A link is untrusted input that the app then runs, so `src/lib/share.ts`
 validates it against explicit limits rather than trusting it, and rejects
 anything out of range instead of clamping — importing a workout that differs
-from the one that was sent would be worse than importing none.
+from the one that was sent would be worse than importing none. The structure is
+held to a stricter test still: it is kept only if it compiles to exactly the
+workout that came with it, so a link cannot ship innocuous steps beside a plan
+that would rewrite them on the first save. Anything malformed there drops the
+structure and imports the workout anyway — the blocks are what runs, the plan
+only decides which editor opens.
 
 ### Dev tools
 
@@ -200,9 +239,15 @@ npm run build
   timestamps, so `computeAutoAdvance` can place a boundary at the exact instant
   it was due even if the phone slept through it, and can catch up several at
   once. Nothing here counts intervals either.
-- `src/lib/workouts.ts` — workouts in two forms: the authored form (repeat
-  groups, what the builder edits) and the flat form the engine walks.
-  `resolveWorkout` flattens one into the other, once, when a session starts.
+- `src/lib/workouts.ts` — workouts in three forms. `WorkoutPlan` is the
+  structure the builder edits — warm up, one main section, cool down —
+  `WorkoutBlock[]` is what is stored and shared, and `resolveWorkout` flattens
+  blocks into the segment array the engine walks, once, when a session starts.
+  `planToBlocks` compiles a plan down on every save, `inferPlan` reads plain
+  blocks back as a structure (strictly: a null answer means the advanced
+  editor), and `describePlan` writes the three lines a picker card shows. The
+  plan is optional on a workout, so nothing stored before it existed needed a
+  migration.
 - `src/lib/useRide.ts` — session state machine, persistence, the render tick.
 
 ## Beep vocabulary

@@ -43,9 +43,14 @@ being correct and dull over clever.
   display stabilisation. Pure: no React, no formatting, no session concepts.
   Test this hardest.
 - `src/lib/segments.ts` — the interval engine over a flat segment array.
-- `src/lib/workouts.ts` — workouts in two forms: authored (repeat groups, what
-  the builder edits) and flat (what the engine walks). `resolveWorkout`
-  flattens once, at session start.
+- `src/lib/workouts.ts` — workouts in three forms. `WorkoutPlan` is the shape
+  the builder edits (warm up, one main section, cool down), `WorkoutBlock[]` is
+  what is stored and shared, and `resolveWorkout` flattens blocks into the
+  segment array the engine walks, once, at session start. `planToBlocks`
+  compiles down on save; `inferPlan` reads blocks back and answers null rather
+  than guessing. The plan is optional on a `WorkoutDef`, so nothing stored
+  before it existed needs a migration — a plan-less workout opens in the
+  advanced editor.
 - `src/lib/audio.ts` — beeps scheduled on `AudioContext.currentTime`, derived
   from the same boundary instant the countdown displays.
 - `src/lib/speech.ts` — spoken cues layered on the beeps. Best-effort by
@@ -74,6 +79,17 @@ being correct and dull over clever.
 ## Hard-won details
 
 These were each found by a bug on a real ride. Don't undo them casually.
+
+- **A set that ends on a recovery needs a flag on the block, not a split set.**
+  Splitting a 6× set into 5× plus a short round says the same thing and
+  renumbers the last rep as "Mile" instead of "Mile 6", which takes "number 6"
+  out of the voice with it. Hence `dropFinalStep`, and hence `coalesceBlocks`
+  refusing to merge a block that carries it.
+- **A ladder's rungs live on the plan, not in the blocks.** They compile to
+  repeat-1 blocks that coalesce into one flat run, which `inferPlan` cannot read
+  back as a ladder. So the builder keeps the plan it came in with across a trip
+  through the advanced editor: without that, looking at Advanced and changing
+  nothing silently cost the structure.
 
 - **Pace is far twitchier than speed.** A 0.5 mph wobble at 7 mph moves pace by
   ~35 s/mile. Hence the 5s window, the spike gate, the pace hysteresis, and the
@@ -168,6 +184,12 @@ targets and tolerance bands, the workout builder, and history with CSV export.
 
 Everything below is desk-verified only. It is the first thing to ask Sam about,
 and the reason to be careful before piling more on top.
+
+- **The structured builder and the picker cards.** Driven at 390×844 in a
+  desktop browser, which caught three real problems (a clipped ladder rung, a
+  step card too tall to use, a note rendered off-screen) and proves nothing
+  about a phone in the dark. Whether the three-card shape is faster to build
+  with than the old list is the actual question.
 
 - **Rotation.** Portrait to landscape and back. This was got wrong twice; the
   shell is now `position: fixed; inset: 0` and a desktop check is not proof.

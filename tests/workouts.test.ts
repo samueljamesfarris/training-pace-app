@@ -1,6 +1,7 @@
 import {
   blankWorkout,
   clonePlan,
+  describePlan,
   coalesceBlocks,
   copyWorkout,
   endLabel,
@@ -497,6 +498,59 @@ console.log('\n--- a new workout starts as a shape, not an empty list ---');
   const named = workoutFromPlan(w.plan!, 'Named');
   eq('workoutFromPlan takes the name given', named.name, 'Named');
   ok('and mints its own id', named.id !== w.id);
+}
+
+console.log('\n--- describePlan: a workout readable without expanding it ---');
+{
+  const by = (id: string) => {
+    const w = PRESET_WORKOUTS.find((x) => x.id === id)!;
+    return describePlan(w.plan!);
+  };
+
+  eq('a uniform set counts its rounds', by('repeats-800-x6').main,
+     '6 × 800m + Recovery 400m');
+  eq('a steady main is just itself', by('tempo-2-3-1').main, 'Tempo 3 mi');
+  eq('with its warmup', by('tempo-2-3-1').warmup, 'Warmup 2 mi');
+  eq('and its cooldown', by('tempo-2-3-1').cooldown, 'Cooldown 1 mi');
+  eq('a missing warmup is null, not an empty string', by('repeats-800-x6').warmup, null);
+
+  // A ladder is its rungs; the count is right there to be counted.
+  eq('a ladder lists its rungs', by('ladder-400-1200-400').main,
+     '400m / 800m / 1200m / 800m / 400m, equal recovery');
+
+  // A rung named for its own distance must not print it twice.
+  const rungs = by('ladder-400-1200-400').main;
+  ok('no rung repeats itself', !/(\b\d+m) \1/.test(rungs), rungs);
+
+  const withTarget = describePlan({
+    warmup: null,
+    cooldown: null,
+    main: {
+      kind: 'steady',
+      segment: {
+        name: 'Tempo',
+        kind: 'work',
+        end: { type: 'distance', meters: 3 * MILE },
+        targetPaceSecPerMile: 380,
+      },
+    },
+  });
+  eq('a goal pace is part of the summary', withTarget.main, 'Tempo 3 mi @ 6:20');
+
+  const spelled = describePlan({
+    warmup: null,
+    cooldown: null,
+    main: {
+      kind: 'repeat', rounds: 3, dropFinalRecovery: true,
+      steps: [
+        { name: 'Hill', kind: 'work', end: { type: 'distance', meters: 200 } },
+        { name: 'Jog down', kind: 'recovery', end: { type: 'distance', meters: 200 } },
+        { name: 'Rest', kind: 'recovery', end: { type: 'time', seconds: 60 } },
+      ],
+    },
+  });
+  eq('a three-part rep spells all three', spelled.main,
+     '3 × Hill 200m + Jog down 200m + Rest 1:00');
 }
 
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURES`);
