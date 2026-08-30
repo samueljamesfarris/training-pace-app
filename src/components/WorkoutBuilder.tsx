@@ -1,393 +1,511 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { formatClock } from '../lib/units';
+import { LIMITS } from '../lib/share';
 import {
+  blankPlan,
+  clonePlan,
   coalesceBlocks,
-  KIND_LABEL,
-  KINDS,
+  endLabel,
+  inferPlan,
+  KIND_DEFAULT_NAME,
   MILE,
-  newId,
   plannedMeters,
   plannedSeconds,
+  planToBlocks,
   resolveWorkout,
+  type EndCondition,
+  type MainSection,
+  type RepeatStep,
   type SegmentDef,
   type SegmentKind,
   type WorkoutBlock,
   type WorkoutDef,
+  type WorkoutPlan,
 } from '../lib/workouts';
+import { BlockEditor } from './BlockEditor';
+import {
+  DistanceInput,
+  KIND_CHIP,
+  newSegment,
+  SegmentFields,
+  SmallButton,
+  TimeInput,
+} from './SegmentInputs';
 
 /**
- * A new segment is named after its kind rather than the word "Segment", which
- * only duplicated the chip below it. `KIND_LABEL` is the one place these names
- * are spelled, so the chips, the preview and the defaults cannot drift.
- */
-function newSegment(kind: SegmentKind = 'work'): SegmentDef {
-  return kind === 'work'
-    ? { name: KIND_LABEL[kind], kind, end: { type: 'time', seconds: 60 } }
-    : { name: KIND_LABEL[kind], kind, end: { type: 'time', seconds: 30 } };
-}
-
-/** True when a name is still the untouched default for some kind. */
-function isDefaultName(name: string) {
-  return KINDS.some((k) => KIND_LABEL[k] === name);
-}
-
-const KIND_CHIP: Record<SegmentKind, string> = {
-  work: 'bg-work text-work-ink',
-  recovery: 'bg-recovery text-recovery-ink',
-  warmup: 'bg-neutral-kind text-neutral-kind-ink',
-  cooldown: 'bg-neutral-kind text-neutral-kind-ink',
-};
-
-function SmallButton({
-  children,
-  onClick,
-  disabled,
-  tone = 'plain',
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  tone?: 'plain' | 'danger';
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-lg border px-2.5 py-1.5 text-sm font-bold disabled:opacity-30 ${
-        tone === 'danger' ? 'border-stop text-stop' : 'border-line text-ink'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Seconds read as a clock, so 5 shows as 05 — but only at rest, never mid-edit. */
-function padSeconds(s: number) {
-  return String(s).padStart(2, '0');
-}
-
-/**
- * Minutes + seconds, because a single field invites 90 meaning 1:30 or 0:90.
+ * The workout builder.
  *
- * The text is held locally so an empty box is legal while typing — coercing
- * every keystroke through `Number(x) || 0` made blank unreachable, since
- * backspacing to empty immediately rendered "0" back into the field. The parent
- * still gets a number on every keystroke, so the preview stays live.
+ * A workout has a shape — warm up, one main section, cool down — and that is
+ * what this edits. The main section is one steady piece or one set of reps,
+ * because those are the two workouts that actually get run; anything else goes
+ * to the advanced editor, which still edits blocks directly.
+ *
+ * The plan is never the stored truth. Saving compiles it to blocks, which is
+ * what the session engine walks and what a share link carries.
  */
-function TimeInput({
-  seconds,
+
+/**
+ * Inside the structure, a segment is work or recovery. Warmup and cooldown are
+ * sections of their own, so offering them again in the middle of a set only
+ * invited a workout whose parts contradict its shape.
+ */
+const SET_KINDS: SegmentKind[] = ['work', 'recovery'];
+
+function summarize(segments: SegmentDef[]): string {
+  const secs = plannedSeconds(segments);
+  const meters = plannedMeters(segments);
+  return [
+    `${segments.length} segment${segments.length === 1 ? '' : 's'}`,
+    secs != null && secs > 0 ? formatClock(secs * 1000) : null,
+    meters > 0 ? `${(meters / MILE).toFixed(2)} mi` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** A titled card, with the on/off switch for the sections that have one. */
+function Section({
+  title,
+  hint,
+  present,
+  onAdd,
+  onRemove,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  present: boolean;
+  onAdd?: () => void;
+  onRemove?: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <section className="mb-3 rounded-2xl border-2 border-line bg-card p-3">
+      <div className="flex items-center gap-2">
+        <h3 className="text-xs font-black tracking-widest text-muted uppercase">{title}</h3>
+        <span className="flex-1" />
+        {present && onRemove && (
+          <SmallButton onClick={onRemove} tone="danger">
+            Remove
+          </SmallButton>
+        )}
+        {!present && onAdd && <SmallButton onClick={onAdd}>+ Add</SmallButton>}
+      </div>
+      {present ? (
+        <div className="mt-2">{children}</div>
+      ) : (
+        hint && <p className="mt-1 text-sm text-muted">{hint}</p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * A ladder's rungs: one end condition per round.
+ *
+ * The Time/Distance choice belongs to the whole ladder — a set that measures
+ * some rounds in minutes and others in meters is not a ladder, it is two
+ * workouts — but each rung keeps its own unit, because 400m, 800m and 1 mile
+ * is a perfectly ordinary ladder to want.
+ */
+function LadderRungs({
+  perRound,
   onChange,
 }: {
-  seconds: number;
-  onChange: (s: number) => void;
+  perRound: EndCondition[];
+  onChange: (rungs: EndCondition[]) => void;
 }) {
-  const [minText, setMinText] = useState(() => String(Math.floor(seconds / 60)));
-  const [secText, setSecText] = useState(() => padSeconds(seconds % 60));
-  // The last value this field sent up. Anything else arriving in `seconds` came
-  // from outside, and only then may we overwrite what is being typed.
-  const emitted = useRef(seconds);
+  const type = perRound[0]?.type ?? 'distance';
 
-  useEffect(() => {
-    if (seconds === emitted.current) return;
-    emitted.current = seconds;
-    setMinText(String(Math.floor(seconds / 60)));
-    setSecText(padSeconds(seconds % 60));
-  }, [seconds]);
-
-  function commit(mRaw: string, sRaw: string) {
-    const m = Math.max(0, Math.floor(Number(mRaw) || 0));
-    const s = Math.min(59, Math.max(0, Math.floor(Number(sRaw) || 0)));
-    const total = m * 60 + s;
-    emitted.current = total;
-    onChange(total);
-    return total;
+  function setType(next: 'time' | 'distance') {
+    if (next === type) return;
+    onChange(
+      perRound.map((e) =>
+        next === 'time'
+          ? { type: 'time', seconds: e.type === 'time' ? e.seconds : 120 }
+          : { type: 'distance', meters: e.type === 'distance' ? e.meters : 400 },
+      ),
+    );
   }
 
-  /** On blur, empty commits 0 and seconds settle inside 0-59. */
-  function normalize() {
-    const total = commit(minText, secText);
-    setMinText(String(Math.floor(total / 60)));
-    setSecText(padSeconds(total % 60));
+  function setRung(i: number, end: EndCondition) {
+    onChange(perRound.map((e, j) => (j === i ? end : e)));
   }
 
-  const field =
-    'w-14 rounded-lg border border-line px-2 py-1.5 text-center text-base font-bold';
-  return (
-    <span className="flex items-center gap-1">
-      <input
-        type="number"
-        inputMode="numeric"
-        min={0}
-        value={minText}
-        aria-label="minutes"
-        onFocus={(e) => e.target.select()}
-        onBlur={normalize}
-        onChange={(e) => {
-          setMinText(e.target.value);
-          commit(e.target.value, secText);
-        }}
-        className={field}
-      />
-      <span className="font-bold text-muted">:</span>
-      {/* Padding is applied when the field is at rest, never to what is being
-          typed — a padded "030" mid-edit is what turned typing 45 into 3045.
-          Local text plus select-on-focus is what makes this safe now. */}
-      <input
-        type="number"
-        inputMode="numeric"
-        min={0}
-        max={59}
-        value={secText}
-        aria-label="seconds"
-        onFocus={(e) => e.target.select()}
-        onBlur={normalize}
-        onChange={(e) => {
-          setSecText(e.target.value);
-          commit(minText, e.target.value);
-        }}
-        className={field}
-      />
-    </span>
-  );
-}
-
-type DistanceUnit = 'm' | 'mi';
-
-function showDistance(meters: number, unit: DistanceUnit) {
-  return unit === 'mi' ? String(+(meters / MILE).toFixed(2)) : String(Math.round(meters));
-}
-
-function DistanceInput({
-  meters,
-  onChange,
-}: {
-  meters: number;
-  onChange: (m: number) => void;
-}) {
-  // Which unit is *displayed*. Seeded from magnitude once and then owned by the
-  // user: deriving it from the value on every render meant picking "mi" on a
-  // 400 m segment stored 400 miles, and typing 0.5 mi flipped back to 804 m
-  // mid-keystroke.
-  const [unit, setUnit] = useState<DistanceUnit>(() => (meters >= MILE ? 'mi' : 'm'));
-  const [text, setText] = useState(() =>
-    showDistance(meters, meters >= MILE ? 'mi' : 'm'),
-  );
-  const emitted = useRef(meters);
-
-  useEffect(() => {
-    if (meters === emitted.current) return;
-    emitted.current = meters;
-    setText(showDistance(meters, unit));
-  }, [meters, unit]);
-
-  function commit(raw: string, u: DistanceUnit) {
-    const n = Math.max(0, Number(raw) || 0);
-    const m = u === 'mi' ? n * MILE : n;
-    emitted.current = m;
-    onChange(m);
-    return m;
-  }
-
-  function normalize() {
-    const n = Math.max(0, Number(text) || 0);
-    const m = unit === 'mi' ? n * MILE : n;
-    // Compare what is *shown*, so tabbing through a field displaying 805 m
-    // can't quietly round the stored 804.672 m that a 0.5 mi entry produced.
-    if (showDistance(m, unit) !== showDistance(meters, unit)) {
-      emitted.current = m;
-      onChange(m);
-      setText(showDistance(m, unit));
-    } else {
-      setText(showDistance(meters, unit));
-    }
-  }
-
-  /** The dropdown re-expresses the same distance. The stored meters never move. */
-  function changeUnit(next: DistanceUnit) {
-    setUnit(next);
-    setText(showDistance(meters, next));
-  }
+  const tab = (on: boolean) =>
+    `rounded-lg px-2.5 py-1.5 text-sm font-bold ${
+      on ? 'bg-next text-next-ink' : 'border border-line text-muted'
+    }`;
 
   return (
-    <span className="flex items-center gap-1">
-      <input
-        type="number"
-        inputMode="decimal"
-        min={0}
-        step={unit === 'mi' ? 0.05 : 50}
-        value={text}
-        aria-label="distance"
-        onFocus={(e) => e.target.select()}
-        onBlur={normalize}
-        onChange={(e) => {
-          setText(e.target.value);
-          commit(e.target.value, unit);
-        }}
-        className="w-20 rounded-lg border border-line px-2 py-1.5 text-center text-base font-bold"
-      />
-      <select
-        value={unit}
-        aria-label="distance unit"
-        onChange={(e) => changeUnit(e.target.value as DistanceUnit)}
-        className="rounded-lg border border-line px-2 py-1.5 text-sm font-bold"
-      >
-        <option value="m">m</option>
-        <option value="mi">mi</option>
-      </select>
-    </span>
+    <div className="mt-2">
+      <div className="flex gap-1">
+        <button onClick={() => setType('time')} className={tab(type === 'time')}>
+          Time
+        </button>
+        <button onClick={() => setType('distance')} className={tab(type === 'distance')}>
+          Distance
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {perRound.map((end, i) => (
+          <div key={i} className="flex items-center gap-1.5 rounded-lg bg-raised px-1.5 py-1">
+            <span className="text-[11px] font-black text-muted">{i + 1}</span>
+            {end.type === 'time' ? (
+              <TimeInput
+                seconds={end.seconds}
+                compact
+                onChange={(s) => setRung(i, { type: 'time', seconds: s })}
+              />
+            ) : (
+              <DistanceInput
+                meters={end.meters}
+                compact
+                onChange={(m) => setRung(i, { type: 'distance', meters: m })}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
-function SegmentRow({
-  seg,
+function StepCard({
+  step,
+  rounds,
+  index,
+  total,
   onChange,
   onRemove,
   onMove,
-  canMoveUp,
-  canMoveDown,
 }: {
-  seg: SegmentDef;
-  onChange: (s: SegmentDef) => void;
+  step: RepeatStep;
+  rounds: number;
+  index: number;
+  total: number;
+  onChange: (s: RepeatStep) => void;
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
 }) {
-  // What each mode last held, so flipping Time/Distance to look at the other
-  // one doesn't throw away what was already entered. The defaults are only
-  // ever used the first time a mode is opened for this segment.
-  const [lastSeconds, setLastSeconds] = useState(
-    seg.end.type === 'time' ? seg.end.seconds : 120,
-  );
-  const [lastMeters, setLastMeters] = useState(
-    seg.end.type === 'distance' ? seg.end.meters : 400,
-  );
-  useEffect(() => {
-    if (seg.end.type === 'time') setLastSeconds(seg.end.seconds);
-    else setLastMeters(seg.end.meters);
-  }, [seg.end]);
+  const varies = step.perRound != null;
+  const mirrors = step.matchPrevious === true;
 
   return (
-    <div className="mb-2 rounded-xl border border-line p-2">
+    <div className="mb-2 rounded-xl border border-line bg-surface p-2">
       <div className="flex items-center gap-2">
-        <input
-          value={seg.name}
-          onChange={(e) => onChange({ ...seg, name: e.target.value })}
-          placeholder="Segment name"
-          className="min-w-0 flex-1 rounded-lg border border-line px-2 py-1.5 text-base font-bold"
-        />
-        <SmallButton onClick={() => onMove(-1)} disabled={!canMoveUp}>
+        <span className={`rounded px-1.5 py-0.5 text-[11px] font-black ${KIND_CHIP[step.kind]}`}>
+          {index + 1}
+        </span>
+        <span className="flex-1" />
+        <SmallButton onClick={() => onMove(-1)} disabled={index === 0} label="Move up">
           ↑
         </SmallButton>
-        <SmallButton onClick={() => onMove(1)} disabled={!canMoveDown}>
+        <SmallButton onClick={() => onMove(1)} disabled={index === total - 1} label="Move down">
           ↓
         </SmallButton>
-        <SmallButton onClick={onRemove} tone="danger">
+        <SmallButton onClick={onRemove} disabled={total <= 1} tone="danger" label="Remove step">
           ✕
         </SmallButton>
       </div>
 
       <div className="mt-2">
-        <div className="mb-1 text-[11px] font-semibold tracking-widest text-muted uppercase">
-          type
+        <SegmentFields
+          seg={step}
+          onChange={(s) => onChange({ ...step, ...s })}
+          kinds={SET_KINDS}
+          showEnd={!varies && !mirrors}
+          namePlaceholder={varies ? `auto — ${endLabel(step.perRound![0]!)}, …` : 'Step name'}
+        />
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {/* A step that varies is what makes a set a ladder. Mutually exclusive
+            with mirroring: a rung can't both set the distance and copy it. */}
+        <SmallButton
+          tone={varies ? 'on' : 'plain'}
+          onClick={() => {
+            if (varies) {
+              const { perRound: _drop, ...rest } = step;
+              onChange(rest);
+            } else {
+              const { matchPrevious: _drop, ...rest } = step;
+              onChange({
+                ...rest,
+                perRound: Array.from({ length: rounds }, () => ({ ...step.end })),
+              });
+            }
+          }}
+        >
+          Varies by round
+        </SmallButton>
+        {index > 0 && (
+          <SmallButton
+            tone={mirrors ? 'on' : 'plain'}
+            onClick={() => {
+              if (mirrors) {
+                const { matchPrevious: _drop, ...rest } = step;
+                onChange(rest);
+              } else {
+                const { perRound: _drop, ...rest } = step;
+                onChange({ ...rest, matchPrevious: true });
+              }
+            }}
+          >
+            Match the step above
+          </SmallButton>
+        )}
+      </div>
+
+      {varies && <LadderRungs perRound={step.perRound!} onChange={(perRound) => onChange({ ...step, perRound })} />}
+      {mirrors && (
+        <p className="mt-2 text-sm text-muted">
+          Takes whatever the step above measures, round by round.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Keep `perRound` exactly as long as there are rounds to run. */
+function fitRungs(step: RepeatStep, rounds: number): RepeatStep {
+  if (!step.perRound) return step;
+  const out = step.perRound.slice(0, rounds);
+  while (out.length < rounds) out.push({ ...(out[out.length - 1] ?? step.end) });
+  return { ...step, perRound: out };
+}
+
+function MainEditor({
+  main,
+  resolvedCount,
+  onChange,
+}: {
+  main: MainSection;
+  resolvedCount: number;
+  onChange: (m: MainSection) => void;
+}) {
+  const [lastSteady, setLastSteady] = useState<SegmentDef>(() =>
+    main.kind === 'steady'
+      ? main.segment
+      : { name: 'Tempo', kind: 'work', end: { type: 'distance', meters: 3 * MILE } },
+  );
+  const [lastRepeat, setLastRepeat] = useState<Extract<MainSection, { kind: 'repeat' }>>(() =>
+    main.kind === 'repeat'
+      ? main
+      : {
+          kind: 'repeat',
+          rounds: 4,
+          dropFinalRecovery: true,
+          steps: [newSegment('work'), newSegment('recovery')],
+        },
+  );
+
+  function remember(next: MainSection) {
+    if (next.kind === 'steady') setLastSteady(next.segment);
+    else setLastRepeat(next);
+    onChange(next);
+  }
+
+  const tab = (on: boolean) =>
+    `flex-1 rounded-lg px-3 py-2 text-sm font-black ${
+      on ? 'bg-next text-next-ink' : 'border border-line text-muted'
+    }`;
+
+  return (
+    <>
+      <div className="flex gap-2">
+        <button
+          onClick={() => main.kind !== 'steady' && onChange({ kind: 'steady', segment: lastSteady })}
+          className={tab(main.kind === 'steady')}
+        >
+          One piece
+        </button>
+        <button
+          onClick={() => main.kind !== 'repeat' && onChange(lastRepeat)}
+          className={tab(main.kind === 'repeat')}
+        >
+          Repeats
+        </button>
+      </div>
+
+      {main.kind === 'steady' ? (
+        <div className="mt-3 rounded-xl border border-line bg-surface p-2">
+          <SegmentFields
+            seg={main.segment}
+            kinds={SET_KINDS}
+            onChange={(segment) => remember({ kind: 'steady', segment })}
+            namePlaceholder="Tempo, long run, …"
+          />
         </div>
-        <div className="flex flex-wrap items-center gap-1">
-          {KINDS.map((k) => (
-            <button
-              key={k}
+      ) : (
+        <>
+          <div className="mt-3 flex items-center gap-2">
+            <SmallButton
               onClick={() =>
-                onChange({
-                  ...seg,
-                  kind: k,
-                  // Follow the kind only while the name is still a default.
-                  // A name he typed is his, and changing the type must not
-                  // quietly overwrite it.
-                  name: isDefaultName(seg.name) ? KIND_LABEL[k] : seg.name,
+                remember({
+                  ...main,
+                  rounds: Math.max(1, main.rounds - 1),
+                  steps: main.steps.map((s) => fitRungs(s, Math.max(1, main.rounds - 1))),
                 })
               }
-              className={`rounded px-2 py-1 text-[11px] font-black tracking-widest ${
-                seg.kind === k ? KIND_CHIP[k] : 'border border-line text-muted'
-              }`}
+              disabled={main.rounds <= 1}
+              label="One fewer round"
             >
-              {KIND_LABEL[k]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Target pace is optional, and absent by default: most segments don't
-          have one, and an empty field invites filling in. */}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold tracking-widest text-muted uppercase">
-          target
-        </span>
-        {seg.targetPaceSecPerMile == null ? (
-          <SmallButton
-            onClick={() => onChange({ ...seg, targetPaceSecPerMile: 480 })}
-          >
-            + Goal pace
-          </SmallButton>
-        ) : (
-          <>
-            <TimeInput
-              seconds={seg.targetPaceSecPerMile}
-              onChange={(v) => onChange({ ...seg, targetPaceSecPerMile: v })}
-            />
-            <span className="text-xs font-bold text-muted">/ mile</span>
-            <SmallButton
-              onClick={() => {
-                const { targetPaceSecPerMile: _drop, ...rest } = seg;
-                onChange(rest);
-              }}
-              tone="danger"
-            >
-              ✕
+              −
             </SmallButton>
-          </>
-        )}
-      </div>
+            <span className="text-2xl font-black">{main.rounds}×</span>
+            <SmallButton
+              onClick={() =>
+                remember({
+                  ...main,
+                  rounds: main.rounds + 1,
+                  steps: main.steps.map((s) => fitRungs(s, main.rounds + 1)),
+                })
+              }
+              // Bounded by what a share link is allowed to carry, so anything
+              // built here can always be sent to somebody.
+              disabled={
+                main.rounds >= LIMITS.repeat.max ||
+                resolvedCount + main.steps.length > LIMITS.resolvedSegments
+              }
+              label="One more round"
+            >
+              +
+            </SmallButton>
+            <span className="text-sm font-bold text-muted">
+              round{main.rounds === 1 ? '' : 's'}
+            </span>
+          </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
-          <button
-            onClick={() =>
-              onChange({ ...seg, end: { type: 'time', seconds: lastSeconds } })
-            }
-            className={`rounded-lg px-2.5 py-1.5 text-sm font-bold ${
-              seg.end.type === 'time'
-                ? 'bg-next text-next-ink'
-                : 'border border-line text-muted'
-            }`}
-          >
-            Time
-          </button>
-          <button
-            onClick={() =>
-              onChange({ ...seg, end: { type: 'distance', meters: lastMeters } })
-            }
-            className={`rounded-lg px-2.5 py-1.5 text-sm font-bold ${
-              seg.end.type === 'distance'
-                ? 'bg-next text-next-ink'
-                : 'border border-line text-muted'
-            }`}
-          >
-            Distance
-          </button>
-        </div>
-        {seg.end.type === 'time' ? (
-          <TimeInput
-            seconds={seg.end.seconds}
-            onChange={(s) => onChange({ ...seg, end: { type: 'time', seconds: s } })}
-          />
-        ) : (
-          <DistanceInput
-            meters={seg.end.meters}
-            onChange={(m) => onChange({ ...seg, end: { type: 'distance', meters: m } })}
+          <div className="mt-3 border-l-2 border-line pl-3">
+            {main.steps.map((step, i) => (
+              <StepCard
+                key={i}
+                step={step}
+                rounds={main.rounds}
+                index={i}
+                total={main.steps.length}
+                onChange={(next) =>
+                  remember({
+                    ...main,
+                    steps: main.steps.map((s, j) => (j === i ? next : s)),
+                  })
+                }
+                onRemove={() =>
+                  remember({ ...main, steps: main.steps.filter((_, j) => j !== i) })
+                }
+                onMove={(dir) => {
+                  const j = i + dir;
+                  if (j < 0 || j >= main.steps.length) return;
+                  const steps = main.steps.slice();
+                  [steps[i], steps[j]] = [steps[j]!, steps[i]!];
+                  // The first step can't mirror anything above it.
+                  if (steps[0]?.matchPrevious) {
+                    const { matchPrevious: _drop, ...rest } = steps[0]!;
+                    steps[0] = rest;
+                  }
+                  remember({ ...main, steps });
+                }}
+              />
+            ))}
+            <SmallButton
+              onClick={() =>
+                remember({ ...main, steps: [...main.steps, newSegment('recovery')] })
+              }
+              disabled={
+                main.steps.length >= LIMITS.segmentsPerBlock ||
+                resolvedCount + main.rounds > LIMITS.resolvedSegments
+              }
+            >
+              + Step to each round
+            </SmallButton>
+          </div>
+
+          {main.steps.length > 1 && (
+            <label className="mt-3 flex items-start gap-2 text-sm font-bold text-muted">
+              <input
+                type="checkbox"
+                checked={main.dropFinalRecovery}
+                onChange={(e) => remember({ ...main, dropFinalRecovery: e.target.checked })}
+                className="mt-0.5 size-4"
+              />
+              <span>
+                End on {main.steps[0]!.name || KIND_DEFAULT_NAME[main.steps[0]!.kind]} — skip the
+                last {main.steps[main.steps.length - 1]!.name || 'step'} on the final round
+              </span>
+            </label>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function PlanEditor({
+  plan,
+  onChange,
+}: {
+  plan: WorkoutPlan;
+  onChange: (p: WorkoutPlan) => void;
+}) {
+  const resolvedCount = resolveWorkout({
+    id: 'draft',
+    name: 'draft',
+    blocks: planToBlocks(plan),
+  }).segments.length;
+
+  return (
+    <>
+      <Section
+        title="Warm up"
+        hint="No warmup — the workout starts on the main section."
+        present={plan.warmup != null}
+        onAdd={() =>
+          onChange({
+            ...plan,
+            warmup: { name: 'Warmup', kind: 'warmup', end: { type: 'time', seconds: 600 } },
+          })
+        }
+        onRemove={() => onChange({ ...plan, warmup: null })}
+      >
+        {plan.warmup && (
+          <SegmentFields
+            seg={plan.warmup}
+            onChange={(warmup) => onChange({ ...plan, warmup })}
+            namePlaceholder="Warmup"
           />
         )}
-      </div>
-    </div>
+      </Section>
+
+      <Section title="Main" present>
+        <MainEditor
+          main={plan.main}
+          resolvedCount={resolvedCount}
+          onChange={(main) => onChange({ ...plan, main })}
+        />
+      </Section>
+
+      <Section
+        title="Cool down"
+        hint="No cooldown — the workout ends on the main section."
+        present={plan.cooldown != null}
+        onAdd={() =>
+          onChange({
+            ...plan,
+            cooldown: { name: 'Cooldown', kind: 'cooldown', end: { type: 'time', seconds: 300 } },
+          })
+        }
+        onRemove={() => onChange({ ...plan, cooldown: null })}
+      >
+        {plan.cooldown && (
+          <SegmentFields
+            seg={plan.cooldown}
+            onChange={(cooldown) => onChange({ ...plan, cooldown })}
+            namePlaceholder="Cooldown"
+          />
+        )}
+      </Section>
+    </>
   );
 }
 
@@ -404,46 +522,76 @@ export function WorkoutBuilder({
   onDelete?: () => void;
   onCancel: () => void;
 }) {
-  // Coalesce on load too, not only on edit: the ladder preset is five separate
-  // repeat-1 blocks, which would otherwise render as five step groups whose
-  // arrows can't cross the boundaries between them.
-  const [draft, setDraft] = useState<WorkoutDef>(() => ({
-    ...initial,
-    blocks: coalesceBlocks(initial.blocks),
-  }));
+  // A workout arrives structured, or it doesn't. Anything the shape can't
+  // describe — an old custom workout, a link from someone using the advanced
+  // editor — opens where it can actually be edited, rather than being
+  // restructured behind the athlete's back.
+  const startPlan = initial.plan ? clonePlan(initial.plan) : inferPlan(initial.blocks);
+
+  const [name, setName] = useState(initial.name);
+  const [plan, setPlan] = useState<WorkoutPlan>(() => startPlan ?? blankPlan());
+  // Coalesce on load too, not only on edit: a workout stored as several
+  // repeat-1 blocks would otherwise render as several step groups whose arrows
+  // can't cross the boundaries between them.
+  const [blocks, setBlocks] = useState<WorkoutBlock[]>(() => coalesceBlocks(initial.blocks));
+  const [structured, setStructured] = useState(startPlan != null);
+  const [note, setNote] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+
+  /** What Save would write, which is also what the preview shows. */
+  function draft(): WorkoutDef {
+    if (structured) return { ...initial, name, plan, blocks: planToBlocks(plan) };
+    // Blocks edited by hand are the truth; a plan alongside them would be a
+    // claim about a structure nobody has checked.
+    const { plan: _drop, ...rest } = initial;
+    return { ...rest, name, blocks: coalesceBlocks(blocks) };
+  }
+
+  const current = draft();
+  const resolved = resolveWorkout(current).segments;
 
   // Cancel used to throw the draft away without asking. Only worth asking when
   // there is something to lose, and it reuses Delete's two-tap pattern.
   const dirty =
-    JSON.stringify(draft) !==
-    JSON.stringify({ ...initial, blocks: coalesceBlocks(initial.blocks) });
+    JSON.stringify({ ...current, blocks: current.blocks.map((b) => ({ ...b, id: '' })) }) !==
+    JSON.stringify({
+      ...initial,
+      blocks: coalesceBlocks(initial.blocks).map((b) => ({ ...b, id: '' })),
+    });
 
-  const resolved = resolveWorkout(draft);
-  const blockedReason = !draft.name.trim()
+  const blockedReason = !name.trim()
     ? 'Name the workout to save it'
-    : resolved.segments.length === 0
+    : resolved.length === 0
       ? 'Add a segment to save it'
-      : null;
-  const secs = plannedSeconds(resolved.segments);
-  const meters = plannedMeters(resolved.segments);
+      : resolved.length > LIMITS.resolvedSegments
+        ? `That is more than ${LIMITS.resolvedSegments} segments`
+        : null;
 
-  /** Every structural edit goes through here, so coalescing can't be forgotten. */
-  function editBlocks(fn: (blocks: WorkoutBlock[]) => WorkoutBlock[]) {
-    setDraft((d) => ({ ...d, blocks: coalesceBlocks(fn(d.blocks)) }));
+  const flatten = (list: WorkoutBlock[]) =>
+    JSON.stringify(resolveWorkout({ id: 'x', name: 'x', blocks: list }).segments);
+
+  function toStructured() {
+    // The plan we left with, if these are still the same steps. A ladder
+    // expands into a flat run of rungs that `inferPlan` can't read back as a
+    // ladder, so looking at Advanced and changing nothing would otherwise cost
+    // the structure — a trap, and one there is no reason to walk into.
+    const kept = flatten(planToBlocks(plan)) === flatten(blocks) ? plan : inferPlan(blocks);
+    if (!kept) {
+      setNote(
+        "These steps aren't a warm up, one main section and a cool down. Reshape them here, or start a new workout.",
+      );
+      return;
+    }
+    setPlan(kept);
+    setStructured(true);
+    setNote(null);
   }
 
-  function editBlock(id: string, fn: (b: WorkoutBlock) => WorkoutBlock) {
-    editBlocks((blocks) => blocks.map((b) => (b.id === id ? fn(b) : b)));
-  }
-
-  function moveInArray<T>(arr: T[], i: number, dir: -1 | 1): T[] {
-    const j = i + dir;
-    if (j < 0 || j >= arr.length) return arr;
-    const out = arr.slice();
-    [out[i], out[j]] = [out[j]!, out[i]!];
-    return out;
+  function toBlocks() {
+    setBlocks(planToBlocks(plan));
+    setStructured(false);
+    setNote(null);
   }
 
   return (
@@ -459,13 +607,14 @@ export function WorkoutBuilder({
             {confirmCancel ? 'Discard?' : 'Cancel'}
           </button>
           <input
-            value={draft.name}
-            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             placeholder="Workout name"
+            aria-label="Workout name"
             className="min-w-0 flex-1 rounded-lg border border-line px-3 py-2 text-base font-black"
           />
           <button
-            onClick={() => onSave(draft)}
+            onClick={() => onSave(current)}
             disabled={!!blockedReason}
             className="rounded-lg bg-go px-4 py-2 text-sm font-black text-go-ink disabled:opacity-40"
           >
@@ -474,177 +623,35 @@ export function WorkoutBuilder({
         </div>
         <div className="mt-1 text-xs font-bold text-muted">
           {/* A disabled button with no explanation is a dead end. */}
-          {blockedReason ?? (isNew ? 'New workout' : 'Editing')}
+          {blockedReason ?? `${isNew ? 'New workout' : 'Editing'} · ${summarize(resolved)}`}
         </div>
       </header>
 
+      {/* Pinned under the header, not inside the scroller: the button that
+          raises this note is at the bottom of a long page, and a message that
+          appears a screen and a half above it may as well not exist. */}
+      {note && (
+        <button
+          onClick={() => setNote(null)}
+          className="border-b border-line bg-raised px-3 py-2 text-left text-sm font-semibold text-ink"
+        >
+          {note}
+          <span className="ml-1 font-bold text-muted">Tap to dismiss.</span>
+        </button>
+      )}
+
       <div className="flex-1 overflow-y-auto px-3 pb-8">
-        <p className="py-2 text-sm text-muted">
-          {resolved.segments.length} segments
-          {secs != null && ` · ${formatClock(secs * 1000)}`}
-          {meters > 0 && ` · ${(meters / MILE).toFixed(2)} mi`}
-        </p>
-
-        {draft.blocks.map((b, bi) => {
-          // A repeat-1 block is not a group, it is just steps. Rendering it
-          // with a card and a "repeat 1×" header is what made adding a warmup
-          // feel like creating a repeat group of one — and made "+ Segment"
-          // silently drop a step inside the 4× set next to it.
-          const isSet = b.repeat > 1;
-          const blockSegments = resolveWorkout({ ...draft, blocks: [b] }).segments;
-          const blockSecs = plannedSeconds(b.segments);
-          const blockMeters = plannedMeters(b.segments);
-          const summary = [
-            blockSecs != null && blockSecs > 0 ? formatClock(blockSecs * 1000) : null,
-            blockMeters > 0
-              ? blockMeters >= MILE
-                ? `${(blockMeters / MILE).toFixed(2)} mi`
-                : `${Math.round(blockMeters)} m`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(' + ');
-
-          const controls = (
+        <div className="pt-3">
+          {structured ? (
+            <PlanEditor plan={plan} onChange={setPlan} />
+          ) : (
             <>
-              <SmallButton
-                onClick={() => editBlocks((blocks) => moveInArray(blocks, bi, -1))}
-                disabled={bi === 0}
-              >
-                ↑
-              </SmallButton>
-              <SmallButton
-                onClick={() => editBlocks((blocks) => moveInArray(blocks, bi, 1))}
-                disabled={bi === draft.blocks.length - 1}
-              >
-                ↓
-              </SmallButton>
-              <SmallButton
-                onClick={() => editBlocks((blocks) => blocks.filter((x) => x.id !== b.id))}
-                tone="danger"
-                // Blocks coalesce, so counting them is meaningless; what must
-                // not reach zero is the number of segments in the workout.
-                disabled={resolved.segments.length - blockSegments.length <= 0}
-              >
-                ✕
-              </SmallButton>
+              <p className="mb-2 text-xs font-black tracking-widest text-muted uppercase">
+                Steps
+              </p>
+              <BlockEditor blocks={blocks} onChange={setBlocks} />
             </>
-          );
-
-          const rows = b.segments.map((seg, si) => (
-            <SegmentRow
-              key={si}
-              seg={seg}
-              canMoveUp={si > 0}
-              canMoveDown={si < b.segments.length - 1}
-              onMove={(dir) =>
-                editBlock(b.id, (x) => ({ ...x, segments: moveInArray(x.segments, si, dir) }))
-              }
-              onChange={(next) =>
-                editBlock(b.id, (x) => ({
-                  ...x,
-                  segments: x.segments.map((o, i) => (i === si ? next : o)),
-                }))
-              }
-              onRemove={() =>
-                editBlock(b.id, (x) => ({
-                  ...x,
-                  segments: x.segments.filter((_, i) => i !== si),
-                }))
-              }
-            />
-          ));
-
-          if (!isSet) {
-            return (
-              <div key={b.id} className="mb-2">
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="text-[11px] font-black tracking-widest text-muted uppercase">
-                    {b.segments.length === 1 ? 'step' : 'steps'}
-                  </span>
-                  <span className="flex-1" />
-                  {/* Quiet: turning steps into a set is deliberate, not a thing
-                      to trip over while editing one. */}
-                  <SmallButton onClick={() => editBlock(b.id, (x) => ({ ...x, repeat: 2 }))}>
-                    Repeat
-                  </SmallButton>
-                  {controls}
-                </div>
-                {rows}
-                <SmallButton
-                  onClick={() =>
-                    editBlock(b.id, (x) => ({ ...x, segments: [...x.segments, newSegment()] }))
-                  }
-                >
-                  + Segment
-                </SmallButton>
-              </div>
-            );
-          }
-
-          return (
-            <div key={b.id} className="mb-3 rounded-2xl border-2 border-line bg-card p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <SmallButton
-                  onClick={() =>
-                    editBlock(b.id, (x) => ({ ...x, repeat: Math.max(1, x.repeat - 1) }))
-                  }
-                >
-                  −
-                </SmallButton>
-                <span className="text-xl font-black">{b.repeat}×</span>
-                <SmallButton onClick={() => editBlock(b.id, (x) => ({ ...x, repeat: x.repeat + 1 }))}>
-                  +
-                </SmallButton>
-                {summary && (
-                  <span className="min-w-0 truncate text-xs font-bold text-muted">· {summary}</span>
-                )}
-                <span className="flex-1" />
-                {controls}
-              </div>
-              {/* The indent and border are the only things saying "these
-                  repeat", so they have to read at a glance. */}
-              <div className="border-l-2 border-line pl-3">{rows}</div>
-              <div className="mt-1 pl-3">
-                <SmallButton
-                  onClick={() =>
-                    editBlock(b.id, (x) => ({ ...x, segments: [...x.segments, newSegment()] }))
-                  }
-                >
-                  + Segment to this set
-                </SmallButton>
-              </div>
-            </div>
-          );
-        })}
-
-        <div className="flex gap-2">
-          <button
-            onClick={() =>
-              editBlocks((blocks) => [
-                ...blocks,
-                { id: newId('b'), repeat: 1, segments: [newSegment()] },
-              ])
-            }
-            className="flex-1 rounded-xl border-2 border-dashed border-line py-3 text-sm font-bold text-muted"
-          >
-            + Step
-          </button>
-          <button
-            onClick={() =>
-              editBlocks((blocks) => [
-                ...blocks,
-                {
-                  id: newId('b'),
-                  repeat: 2,
-                  segments: [newSegment('work'), newSegment('recovery')],
-                },
-              ])
-            }
-            className="flex-1 rounded-xl border-2 border-dashed border-line py-3 text-sm font-bold text-muted"
-          >
-            + Repeat set
-          </button>
+          )}
         </div>
 
         <div className="mt-4 rounded-2xl bg-card p-3">
@@ -652,27 +659,34 @@ export function WorkoutBuilder({
             Preview
           </h3>
           <div className="flex flex-wrap gap-1">
-            {resolved.segments.map((s, i) => (
+            {resolved.map((s, i) => (
               <span
                 key={i}
                 className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${KIND_CHIP[s.kind]}`}
               >
-                {s.name}{' '}
-                {s.end.type === 'time'
-                  ? formatClock(s.end.seconds * 1000)
-                  : s.end.meters >= MILE
-                    ? `${(s.end.meters / MILE).toFixed(2)} mi`
-                    : `${Math.round(s.end.meters)} m`}
-                {s.targetPaceSecPerMile != null && ` @ ${formatClock(s.targetPaceSecPerMile * 1000)}`}
+                {/* A ladder rung is named for its own distance, so printing
+                    the label too read "400m 400m". */}
+                {s.name === endLabel(s.end) ? s.name : `${s.name} ${endLabel(s.end)}`}
+                {s.targetPaceSecPerMile != null &&
+                  ` @ ${formatClock(s.targetPaceSecPerMile * 1000)}`}
               </span>
             ))}
           </div>
         </div>
 
+        {/* The escape hatch, kept quiet. Almost every workout is the shape
+            above; the ones that aren't still have somewhere to go. */}
+        <button
+          onClick={() => (structured ? toBlocks() : toStructured())}
+          className="mt-4 w-full rounded-xl border-2 border-dashed border-line py-3 text-sm font-bold text-muted"
+        >
+          {structured ? 'Advanced: edit as a list of steps' : 'Back to warm up / main / cool down'}
+        </button>
+
         {onDelete && (
           <button
             onClick={() => (confirmDelete ? onDelete() : setConfirmDelete(true))}
-            className={`mt-4 w-full rounded-xl py-3 text-sm font-black ${
+            className={`mt-3 w-full rounded-xl py-3 text-sm font-black ${
               confirmDelete ? 'bg-stop text-stop-ink' : 'border-2 border-stop text-stop'
             }`}
           >
