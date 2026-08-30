@@ -30,10 +30,13 @@ function runTo(rec: SessionRecord, now: number, dist = 0) {
 }
 
 console.log('--- workout shape: 4 x (2 min on / 30 s rest) ---');
-eq('segment count', W.segments.length, 8);
+// Seven, not eight: the set drops its closing rest, so the workout ends on the
+// fourth rep rather than on 30 seconds of standing around.
+eq('segment count', W.segments.length, 7);
 eq('first is On 1', W.segments[0]!.name, 'On 1');
 eq('second is Rest 1', W.segments[1]!.name, 'Rest 1');
-eq('total planned', W.segments.reduce((a,s)=> a + (s.end.type==='time'? s.end.seconds:0), 0), 600);
+eq('last is the fourth rep', W.segments.at(-1)!.name, 'On 4');
+eq('total planned', W.segments.reduce((a,s)=> a + (s.end.type==='time'? s.end.seconds:0), 0), 570);
 
 console.log('\n--- countdown + on deck ---');
 {
@@ -93,8 +96,8 @@ console.log('\n--- final segment runs into overtime instead of ending itself ---
 {
   const r = fresh();
   runTo(r, base + 700_000);
-  eq('on the last segment', currentSegment(r)!.name, 'Rest 4');
-  eq('index is last', r.boundaries.length, 8);
+  eq('on the last segment', currentSegment(r)!.name, 'On 4');
+  eq('index is last', r.boundaries.length, 7);
   eq('marked complete', isWorkoutComplete(r, base + 700_000, 0), true);
   eq('overtime is negative remaining', remaining(r, currentSegment(r)!, base + 700_000, 0) < 0, true);
   eq('no on-deck segment', onDeckSegment(r), undefined ?? null);
@@ -123,16 +126,21 @@ console.log('\n--- countdown and stopwatch flip on the same beat ---');
 
 console.log('\n--- builder: repeat groups flatten, presets stay pristine ---');
 {
+  // A new workout starts as the shape the builder edits: warmup, a 4x set
+  // whose closing rest is dropped, cooldown.
   const blank = blankWorkout();
-  eq('blank has one 4x block', blank.blocks.length, 1);
-  eq('blank resolves to 8 segments', resolveWorkout(blank).segments.length, 8);
+  eq('blank is warmup, set, cooldown', blank.blocks.length, 3);
+  eq('blank resolves to nine segments', resolveWorkout(blank).segments.length, 9);
+  eq('and ends on the cooldown, not a rest',
+     resolveWorkout(blank).segments.at(-1)!.kind, 'cooldown');
 
   const dup = copyWorkout(DEF);
   eq('duplicate is editable', dup.builtIn, false);
   eq('duplicate gets a new id', dup.id === DEF.id, false);
   dup.blocks[0]!.repeat = 6;
-  eq('editing the copy resolves to 12', resolveWorkout(dup).segments.length, 12);
-  eq('preset untouched', resolveWorkout(DEF).segments.length, 8);
+  // Six rounds of two, less the closing rest this set still drops.
+  eq('editing the copy resolves to 11', resolveWorkout(dup).segments.length, 11);
+  eq('preset untouched', resolveWorkout(DEF).segments.length, 7);
   eq('preset blocks untouched', DEF.blocks[0]!.repeat, 4);
 
   const single = { id: 'x', name: 'x', blocks: [{ id: 'b', repeat: 1, segments: [

@@ -4,6 +4,9 @@ import { formatClock } from '../lib/units';
 import {
   blankWorkout,
   copyWorkout,
+  describePlan,
+  endLabel,
+  inferPlan,
   MILE,
   plannedMeters,
   plannedSeconds,
@@ -16,11 +19,33 @@ import { DECODE_MESSAGE, decodeWorkout, workoutLink } from '../lib/share';
 import { adoptWorkout } from './SharedWorkout';
 
 export function segmentChipLabel(s: SegmentDef): string {
-  return s.end.type === 'time'
-    ? formatClock(s.end.seconds * 1000)
-    : s.end.meters >= MILE
-      ? `${(s.end.meters / MILE).toFixed(2)} mi`
-      : `${Math.round(s.end.meters)} m`;
+  return endLabel(s.end);
+}
+
+/** Total time when everything is timed, plus total distance when any is measured. */
+function totals(segments: SegmentDef[]): string {
+  const secs = plannedSeconds(segments);
+  const meters = plannedMeters(segments);
+  return [
+    `${segments.length} segment${segments.length === 1 ? '' : 's'}`,
+    secs != null && secs > 0 ? formatClock(secs * 1000) : null,
+    meters > 0 ? `${(meters / MILE).toFixed(2)} mi` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function PartRow({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="flex gap-2">
+      {/* Fixed and non-wrapping: "Cool down" broke onto two lines and pushed
+          its own value out of line with the two rows above it. */}
+      <span className="w-[5.5rem] shrink-0 pt-0.5 text-[10px] font-black tracking-wider whitespace-nowrap text-muted uppercase">
+        {label}
+      </span>
+      <span className="min-w-0 flex-1 text-sm font-bold">{text}</span>
+    </div>
+  );
 }
 
 function WorkoutCard({
@@ -41,57 +66,102 @@ function WorkoutCard({
   duplicateLabel: string;
 }) {
   const resolved = resolveWorkout(w);
-  const secs = plannedSeconds(resolved.segments);
-  const meters = plannedMeters(resolved.segments);
+  // A workout without a plan is one the structure can't describe — an old
+  // custom one, or a link built in the advanced editor. It still runs; it just
+  // gets summarized as the list of steps it actually is.
+  const plan = w.plan ?? inferPlan(w.blocks);
+  const parts = plan ? describePlan(plan) : null;
 
   return (
     <div
-      className={`mb-2 rounded-xl border-2 ${selected ? 'border-go bg-card' : 'border-line'}`}
+      className={`mb-2 overflow-hidden rounded-xl border-2 ${
+        selected ? 'border-go bg-card' : 'border-line'
+      }`}
     >
       <button onClick={onChoose} className="w-full p-4 text-left">
-        <div className="text-lg font-black">{w.name}</div>
-        <div className="text-sm text-muted">
-          {resolved.segments.length} segments
-          {secs != null && ` · ${formatClock(secs * 1000)}`}
-          {meters > 0 && ` · ${(meters / MILE).toFixed(2)} mi`}
-          {w.builtIn ? ' · preset' : ''}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1">
-          {resolved.segments.slice(0, 8).map((s, i) => (
-            <span
-              key={i}
-              className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${
-                s.kind === 'work'
-                  ? 'bg-work text-work-ink'
-                  : s.kind === 'recovery'
-                    ? 'bg-recovery text-recovery-ink'
-                    : 'bg-neutral-kind text-neutral-kind-ink'
-              }`}
-            >
-              {s.name} {segmentChipLabel(s)}
+        <div className="flex items-start gap-2">
+          <span className="min-w-0 flex-1 text-lg leading-tight font-black">{w.name}</span>
+          {selected && (
+            <span className="rounded bg-go px-1.5 py-0.5 text-[10px] font-black tracking-widest text-go-ink uppercase">
+              Chosen
             </span>
-          ))}
-          {resolved.segments.length > 8 && (
-            <span className="px-1 text-[11px] font-bold text-muted">
-              +{resolved.segments.length - 8} more
+          )}
+          {w.builtIn && !selected && (
+            <span className="rounded bg-raised px-1.5 py-0.5 text-[10px] font-black tracking-widest text-muted uppercase">
+              Preset
+            </span>
+          )}
+          {!plan && (
+            <span className="rounded bg-raised px-1.5 py-0.5 text-[10px] font-black tracking-widest text-muted uppercase">
+              Custom
             </span>
           )}
         </div>
+
+        {parts ? (
+          <div className="mt-2 space-y-1">
+            {parts.warmup && <PartRow label="Warm up" text={parts.warmup} />}
+            <PartRow label="Main" text={parts.main} />
+            {parts.cooldown && <PartRow label="Cool down" text={parts.cooldown} />}
+          </div>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {resolved.segments.slice(0, 8).map((s, i) => (
+              <span
+                key={i}
+                className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${
+                  s.kind === 'work'
+                    ? 'bg-work text-work-ink'
+                    : s.kind === 'recovery'
+                      ? 'bg-recovery text-recovery-ink'
+                      : 'bg-neutral-kind text-neutral-kind-ink'
+                }`}
+              >
+                {s.name} {segmentChipLabel(s)}
+              </span>
+            ))}
+            {resolved.segments.length > 8 && (
+              <span className="px-1 text-[11px] font-bold text-muted">
+                +{resolved.segments.length - 8} more
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="mt-2 text-xs font-bold text-muted">{totals(resolved.segments)}</div>
       </button>
+
       <div className="flex gap-2 border-t border-line px-3 py-2">
         {onEdit && (
-          <button onClick={onEdit} className="text-sm font-bold text-muted">
+          <button
+            onClick={onEdit}
+            className="rounded-lg border border-line px-3 py-1.5 text-sm font-bold text-ink"
+          >
             Edit
           </button>
         )}
-        <button onClick={onDuplicate} className="text-sm font-bold text-muted">
+        <button
+          onClick={onDuplicate}
+          className="rounded-lg border border-line px-3 py-1.5 text-sm font-bold text-ink"
+        >
           {duplicateLabel}
         </button>
-        <button onClick={onShare} className="text-sm font-bold text-muted">
+        <button
+          onClick={onShare}
+          className="rounded-lg border border-line px-3 py-1.5 text-sm font-bold text-ink"
+        >
           Share
         </button>
       </div>
     </div>
+  );
+}
+
+function Heading({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="mt-3 mb-2 text-xs font-black tracking-widest text-muted uppercase">
+      {children}
+    </h3>
   );
 }
 
@@ -174,6 +244,46 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
       />
     );
   }
+
+  const card = (w: WorkoutDef, preset: boolean) => (
+    <WorkoutCard
+      key={w.id}
+      w={w}
+      selected={selected?.id === w.id}
+      onChoose={() => choose(w)}
+      onEdit={
+        preset
+          ? undefined
+          : () => {
+              setIsNew(false);
+              setEditing(w);
+            }
+      }
+      // Presets stay pristine, so "Customize" opens the builder on a copy —
+      // "Duplicate" made it look like the original was about to be wrecked. A
+      // copy of something he already owns needs no editing session: save it and
+      // let it appear under Mine.
+      duplicateLabel={preset ? 'Customize' : 'Duplicate'}
+      onDuplicate={() => {
+        if (preset) {
+          setIsNew(true);
+          setEditing(copyWorkout(w));
+        } else {
+          void ride
+            .saveWorkout(copyWorkout(w))
+            .then((saved) => setNote(`Copied to "${saved.name}"`));
+        }
+      }}
+      onShare={() => void share(w)}
+    />
+  );
+
+  // Presets split by what the main section is, which is the only distinction
+  // that changes how a session feels. Custom workouts stay in recency order:
+  // the one he built last night is the one he wants at 5am.
+  const isRepeats = (w: WorkoutDef) => (w.plan ?? inferPlan(w.blocks))?.main.kind === 'repeat';
+  const repeatPresets = ride.presetWorkouts.filter(isRepeats);
+  const steadyPresets = ride.presetWorkouts.filter((w) => !isRepeats(w));
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-surface text-ink">
@@ -265,54 +375,18 @@ export function WorkoutPicker({ ride, onClose }: { ride: Ride; onClose: () => vo
           <p className="mb-2 rounded-lg bg-raised px-3 py-2 text-sm font-semibold">{note}</p>
         )}
 
-        {ride.customWorkouts.length > 0 && (
-          <h3 className="mt-1 mb-2 text-xs font-black tracking-widest text-muted uppercase">
-            Mine
-          </h3>
-        )}
-        {ride.customWorkouts.map((w) => (
-          <WorkoutCard
-            key={w.id}
-            w={w}
-            selected={selected?.id === w.id}
-            onChoose={() => choose(w)}
-            onEdit={() => {
-              setIsNew(false);
-              setEditing(w);
-            }}
-            duplicateLabel="Duplicate"
-            // A copy of something he already owns needs no editing session:
-            // save it and let it appear under Mine.
-            onDuplicate={() => {
-              void ride.saveWorkout(copyWorkout(w)).then((saved) => setNote(`Copied to "${saved.name}"`));
-            }}
-            onShare={() => void share(w)}
-          />
-        ))}
+        {ride.customWorkouts.length > 0 && <Heading>Mine</Heading>}
+        {ride.customWorkouts.map((w) => card(w, false))}
 
-        <h3 className="mt-3 mb-2 text-xs font-black tracking-widest text-muted uppercase">
-          Presets
-        </h3>
-        {ride.presetWorkouts.map((w) => (
-          <WorkoutCard
-            key={w.id}
-            w={w}
-            selected={selected?.id === w.id}
-            onChoose={() => choose(w)}
-            // Presets stay pristine, so this opens the builder on a copy —
-            // "Duplicate" made it look like the original was about to be wrecked.
-            duplicateLabel="Customize"
-            onDuplicate={() => {
-              setIsNew(true);
-              setEditing(copyWorkout(w));
-            }}
-            onShare={() => void share(w)}
-          />
-        ))}
+        {repeatPresets.length > 0 && <Heading>Repeats</Heading>}
+        {repeatPresets.map((w) => card(w, true))}
+
+        {steadyPresets.length > 0 && <Heading>Steady runs</Heading>}
+        {steadyPresets.map((w) => card(w, true))}
 
         <p className="py-3 text-sm text-muted">
-          Segments auto-advance when their end condition is met; NEXT always overrides. Target
-          paces and tolerance bands come with the audio step.
+          Segments auto-advance when their end condition is met; NEXT always overrides. Goal paces
+          and the tolerance band are set per segment in the builder.
         </p>
       </div>
     </div>

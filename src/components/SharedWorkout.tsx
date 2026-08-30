@@ -187,5 +187,14 @@ function Step({ n, done }: { n: number; done: boolean }) {
 
 /** A fresh identity for an imported workout, so it never collides with one of his. */
 export function adoptWorkout(w: WorkoutDef): WorkoutDef {
-  return { ...w, id: newId('w'), builtIn: false, updatedAt: Date.now() };
+  return {
+    ...w,
+    id: newId('w'),
+    // A decoded workout's blocks carry no ids — the decoder has no business
+    // minting them — but the builder uses them to key rows and to find the
+    // block an edit belongs to, so two empty ids would edit each other.
+    blocks: w.blocks.map((b) => ({ ...b, id: newId('b') })),
+    builtIn: false,
+    updatedAt: Date.now(),
+  };
 }

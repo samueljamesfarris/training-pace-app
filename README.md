@@ -18,8 +18,36 @@ a flat segment list walked from wall-clock timestamps, auto-advance, the manual
 next-segment override, free-run laps, and a segment table on finish.
 
 Plus the workout builder (step 6): create, edit, duplicate and delete workouts,
-stored in IndexedDB. Presets are read-only — "Duplicate" is how you make one
+stored in IndexedDB. Presets are read-only — "Customize" is how you make one
 yours.
+
+### The shape of a workout
+
+Every workout is a warm up, one main section and a cool down. The warmup and
+the cooldown are optional; the main section is the workout, and it is one of
+two things: a steady piece measured in time or distance, or a set of repeats.
+
+The builder is those three cards. Repeats add what a flat list of steps could
+never say: a step can **vary by round**, which turns its single field into one
+per round and makes the set a ladder, and a recovery can **match the step
+above**, so a ladder's jog mirrors whatever rung it followed. A checkbox ends
+the set on the rep rather than on a closing recovery — six 800s used to finish
+with a 400m jog to nowhere.
+
+Anything the shape can't describe — two different sets, a warmup with strides
+in it — opens in **Advanced**, which is the same list-of-blocks editor the app
+always had. Coming back re-reads the steps as a structure, and keeps the
+structure it left with if nothing was edited.
+
+The picker shows all of this without expanding anything:
+
+```
+Tempo 2 / 3 / 1                      PRESET
+WARM UP    Warmup 2 mi
+MAIN       Tempo 3 mi
+COOL DOWN  Cooldown 1 mi
+3 segments · 6.00 mi
+```
 
 ### Indoor and outdoor
 
@@ -59,8 +87,8 @@ itself again to someone who read the old one.
 
 Every workout card has Share, which builds a link carrying the whole workout
 in the URL's fragment — no server, no account, and a link that still opens an
-installed app offline. The longest preset comes to under 600 characters, so it
-sends in a text message. Sharing goes through the platform share sheet where
+installed app offline. An ordinary workout comes to about 160 characters and
+the longest preset to about 700, so either sends in a text message. Sharing goes through the platform share sheet where
 there is one, then the clipboard, then the raw link on screen.
 
 Opening a link *offers* the workout rather than installing it, and accepting
@@ -78,10 +106,21 @@ with the link put on the clipboard for them, rather than sending them back to
 the message to fish it out. Where storage is shared, which is everywhere else,
 the same block appears as a quiet aside instead of a warning.
 
+A link carries the workout's structure only when the blocks can't imply it —
+a ladder, in practice — since `inferPlan` recovers the rest on arrival, and
+every byte of a plan lands in somebody's text message. It rides as an extra key
+inside the same payload rather than a new format version, so an app built
+before the structure existed ignores it and still runs the workout correctly.
+
 A link is untrusted input that the app then runs, so `src/lib/share.ts`
 validates it against explicit limits rather than trusting it, and rejects
 anything out of range instead of clamping — importing a workout that differs
-from the one that was sent would be worse than importing none.
+from the one that was sent would be worse than importing none. The structure is
+held to a stricter test still: it is kept only if it compiles to exactly the
+workout that came with it, so a link cannot ship innocuous steps beside a plan
+that would rewrite them on the first save. Anything malformed there drops the
+structure and imports the workout anyway — the blocks are what runs, the plan
+only decides which editor opens.
 
 ### Dev tools
 
@@ -218,9 +257,15 @@ npm run build
   timestamps, so `computeAutoAdvance` can place a boundary at the exact instant
   it was due even if the phone slept through it, and can catch up several at
   once. Nothing here counts intervals either.
-- `src/lib/workouts.ts` — workouts in two forms: the authored form (repeat
-  groups, what the builder edits) and the flat form the engine walks.
-  `resolveWorkout` flattens one into the other, once, when a session starts.
+- `src/lib/workouts.ts` — workouts in three forms. `WorkoutPlan` is the
+  structure the builder edits — warm up, one main section, cool down —
+  `WorkoutBlock[]` is what is stored and shared, and `resolveWorkout` flattens
+  blocks into the segment array the engine walks, once, when a session starts.
+  `planToBlocks` compiles a plan down on every save, `inferPlan` reads plain
+  blocks back as a structure (strictly: a null answer means the advanced
+  editor), and `describePlan` writes the three lines a picker card shows. The
+  plan is optional on a workout, so nothing stored before it existed needed a
+  migration.
 - `src/lib/useRide.ts` — session state machine, persistence, the render tick.
 
 ## Beep vocabulary
@@ -233,9 +278,11 @@ throttles the JS timer loop.
 | --- | --- |
 | count-in, 3-2-1 | one short beep each, 1046 Hz |
 | the session starting | one long 1.5 s beep, 1568 Hz |
-| 10 s before a segment ends | two short beeps, 784 Hz |
+| 10 s before a timed segment ends | two short beeps, 784 Hz |
+| 100–400 m before a distance segment ends | two short beeps, 784 Hz |
 | 3, 2, 1 s | one short beep each, 1046 Hz |
 | segment boundary / next segment | one long 1.5 s beep, 1568 Hz |
+| the workout completing | one long 1.5 s beep, 1568 Hz |
 | manual lap (free run) | one short chirp, 1318 Hz |
 | mile split (free run) | two quick chirps, 1318 Hz |
 | off target | a falling pair, 1174 → 880 Hz |
@@ -260,9 +307,19 @@ cold. It is the *first* tap that asks — which may be the one that arms
 the tick makes near-impossible with the screen awake — the session is not
 started retroactively; it simply asks to be tapped again.
 
-Only timed segments can be cued ahead, because only they have a knowable end
-instant. A distance segment sounds its boundary on arrival, with no countdown —
-there is no honest way to know when a distance will be reached.
+Only timed segments can be *scheduled* ahead, because only they have a knowable
+end instant. A distance segment sounds its boundary on arrival, with no
+countdown — there is no honest way to know when a distance will be reached.
+
+Its heads-up, though, is knowable, because the remaining distance is: a
+distance segment gets the same two-beep warning when it comes within 100 m
+(reps under 600 m), 200 m (under a mile) or 400 m (anything longer) of its end,
+played on arrival at that mark rather than scheduled. Before this an 800 m rep
+made no sound at all between its start and its finish.
+
+The end of the workout sounds too. The last segment never auto-advances — it
+runs into overtime until FINISH is tapped — so nothing else would have marked
+it, and a distance-ended workout finished in complete silence.
 
 Toggles, volume, and a test button for each cue live in the dev panel; the
 header has a mute.
@@ -292,20 +349,57 @@ call is best-effort — if speech dies mid-workout the beeps carry on unchanged.
 It is primed with a silent utterance on the START tap, and a wedged queue is
 cleared on every return to visible.
 
+What the voice is *for* is running the workout for someone with no coach and no
+reason to look at the phone: what is starting, how long it lasts, what to aim
+for, and a heads-up before each of those changes.
+
 | When | Said |
 | --- | --- |
-| boundary, inside a repeat set | only what is starting — "Rest number 2" |
-| boundary, a standalone step | the split that closed, then what is starting — "3 minutes, 7 30 pace" / "Tempo" |
+| the session starting | the first instruction — "Warmup, 2 miles, target 8 30" |
+| 10 s / 200 m before a segment ends | what comes after it — "10 seconds, then Rest number 2" |
+| the same, on the last segment | "Last 10 seconds" |
+| boundary, inside a repeat set | what is starting — "Rest number 2, 30 seconds" |
+| boundary, a standalone step | the split that closed, then what is starting — "3 minutes, 7 30 pace" / "Tempo, 3 miles, target 7 30" |
+| boundary, into the last rep of a set | "Last one", then the instruction |
+| boundary, into the last segment | "Last segment", then the instruction |
+| halfway through a long segment | "Halfway, 7 30 pace" |
+| off target | "Ease up, target 7 30" / "Pick it up, target 7 30" |
+| pause and resume | "Paused" / "Resuming, On number 3" |
+| the workout completing | "Workout complete", the total, "Tap finish" |
 | manual lap | the lap's split and pace |
 | mile split, free runs | "Mile 1, 7 40" |
-| off target | "Ease up" or "Pick it up", after the falling beep |
 
-A rep inside a repeat set gets no report of the rep just finished. On a
-60-second rep that callout is still talking when the next rep has started, and
-by then the useful thing is what to do now — so inside a set it says only the
-new step. A standalone step is the opposite case: there the split *is* the
-point, so it keeps its time and pace. Either way, a segment under two seconds
-is a mis-tap and gets nothing.
+Everything is budgeted against the seconds actually available. A rep inside a
+repeat set gets no report of the rep just finished: on a 60-second rep that
+callout is still talking when the next rep has started, and by then the useful
+thing is what to do now. A standalone step is the opposite case — there the
+split *is* the point, so it keeps its time and pace. Either way, a segment
+under two seconds is a mis-tap and gets nothing.
+
+The goal pace is stated when it *changes*, not on every rep: on a set of eight
+the target is the same eight times, and by the third the voice is only using up
+the seconds after the tone. A segment whose name already carries its length —
+"800m", "Mile" — does not have it read back ("800 meters number 2, 800 meters"
+is one fact twice), and a name like `800m` is read as "800 meters" rather than
+"eight hundred em".
+
+"Last one" and "Last segment" lead and stand alone, because they change how the
+next few minutes are run and they survive being cut off by whatever comes next.
+
+The heads-up and the halfway call are driven off the render tick rather than
+scheduled, since neither is knowable in advance, and both are *spent* the
+moment their mark is crossed whether or not they were spoken. If the phone
+slept through the last ten seconds of a rest, "10 seconds, then On number 3"
+arriving two seconds late is worse than silence — the beeps were on the audio
+clock and already told the truth. A segment shorter than twice its own lead
+gets no heads-up at all: announcing the end of a fifteen-second rest is talking
+through the rest. The halfway call needs four minutes or 1200 m, since a
+two-minute rep is over before wondering about it is useful.
+
+All of that guiding layer is one dev-panel toggle, COACHING. Off leaves the
+bare report — the split that just closed, and the name of what is next — which
+is all this app used to say. How much talking helps outdoors is a question only
+a real rep answers.
 
 Reps are also spoken as a coach counts them — "Rest number 2", not "Rest 2",
 which read aloud is ambiguous with a segment actually named that. The screen

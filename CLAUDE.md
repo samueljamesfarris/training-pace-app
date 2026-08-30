@@ -43,13 +43,24 @@ being correct and dull over clever.
   display stabilisation. Pure: no React, no formatting, no session concepts.
   Test this hardest.
 - `src/lib/segments.ts` — the interval engine over a flat segment array.
-- `src/lib/workouts.ts` — workouts in two forms: authored (repeat groups, what
-  the builder edits) and flat (what the engine walks). `resolveWorkout`
-  flattens once, at session start.
+- `src/lib/workouts.ts` — workouts in three forms. `WorkoutPlan` is the shape
+  the builder edits (warm up, one main section, cool down), `WorkoutBlock[]` is
+  what is stored and shared, and `resolveWorkout` flattens blocks into the
+  segment array the engine walks, once, at session start. `planToBlocks`
+  compiles down on save; `inferPlan` reads blocks back and answers null rather
+  than guessing. The plan is optional on a `WorkoutDef`, so nothing stored
+  before it existed needs a migration — a plan-less workout opens in the
+  advanced editor.
 - `src/lib/audio.ts` — beeps scheduled on `AudioContext.currentTime`, derived
   from the same boundary instant the countdown displays.
-- `src/lib/speech.ts` — spoken cues layered on the beeps. Best-effort by
+- `src/lib/speech.ts` — spoken cues layered on the beeps, and the whole
+  vocabulary of the coaching layer: what is starting, how long, what to aim
+  for. Pure phrasing; nothing here knows about a session. Best-effort by
   design: iOS drops speech silently, so nothing may depend on it.
+- `src/lib/coach.ts` — *when* the cues that fall inside a segment fire: the
+  heads-up before it ends and the one progress call on a long one. Pure and
+  stateful like `offTarget.ts`. A cue is spent when its mark is crossed,
+  spoken or not, so a phone that slept through one stays quiet about it.
 - `src/lib/history.ts` — session summaries and every export format: text, CSV,
   and the workbook model. Pure, so the export formats are testable without a
   DOM.
@@ -61,6 +72,8 @@ being correct and dull over clever.
   is pure and decides what the card states; the second draws it on a canvas.
   The palette there is deliberately fixed rather than themed, because the image
   leaves the app.
+- `src/lib/shareFile.ts` — handing a built file to the share sheet, with a
+  download as the fallback. Synchronous by design; see the tap rule below.
 - `src/lib/offTarget.ts` — pace against a segment's goal. Pure and stateful:
   five continuous seconds outside the band before it speaks, twenty between
   warnings, and a direction change restarts the hold.
@@ -83,6 +96,17 @@ being correct and dull over clever.
 ## Hard-won details
 
 These were each found by a bug on a real ride. Don't undo them casually.
+
+- **A set that ends on a recovery needs a flag on the block, not a split set.**
+  Splitting a 6× set into 5× plus a short round says the same thing and
+  renumbers the last rep as "Mile" instead of "Mile 6", which takes "number 6"
+  out of the voice with it. Hence `dropFinalStep`, and hence `coalesceBlocks`
+  refusing to merge a block that carries it.
+- **A ladder's rungs live on the plan, not in the blocks.** They compile to
+  repeat-1 blocks that coalesce into one flat run, which `inferPlan` cannot read
+  back as a ladder. So the builder keeps the plan it came in with across a trip
+  through the advanced editor: without that, looking at Advanced and changing
+  nothing silently cost the structure.
 
 - **Pace is far twitchier than speed.** A 0.5 mph wobble at 7 mph moves pace by
   ~35 s/mile. Hence the 5s window, the spike gate, the pace hysteresis, and the
@@ -184,6 +208,12 @@ targets and tolerance bands, the workout builder, and history with CSV export.
 Everything below is desk-verified only. It is the first thing to ask Sam about,
 and the reason to be careful before piling more on top.
 
+- **The structured builder and the picker cards.** Driven at 390×844 in a
+  desktop browser, which caught three real problems (a clipped ladder rung, a
+  step card too tall to use, a note rendered off-screen) and proves nothing
+  about a phone in the dark. Whether the three-card shape is faster to build
+  with than the old list is the actual question.
+
 - **Rotation.** Portrait to landscape and back. This was got wrong twice; the
   shell is now `position: fixed; inset: 0` and a desktop check is not proof.
 - **The DEV → Screen readout.** What iOS actually reports for safe-area insets,
@@ -195,6 +225,13 @@ and the reason to be careful before piling more on top.
   dropout.
 - **Spoken cues.** iOS speech differs from desktop — it goes quiet after
   interruptions, and voice, rate and timing may all feel wrong outdoors.
+- **How much the coaching layer should say.** The voice now runs the workout —
+  first instruction, a heads-up before every transition, length and goal of
+  what is starting, "last one", halfway pace, completion. It is budgeted to
+  finish before the next thing happens, but only a real set of 30-second rests
+  proves that. The COACHING toggle in the dev panel turns it back down to the
+  bare split-and-name behavior; whether the middle ground is wanted is the
+  question to ask after a run.
 - **Targets.** Whether ±5 s/mile is the right band, and whether a warning every
   twenty seconds helps or nags, is a question only a real rep answers.
 
@@ -218,7 +255,7 @@ and the reason to be careful before piling more on top.
 
 The repo carries everything: this file loads automatically, the commit messages
 carry the reasoning behind each decision, and `npm test` covers the engine,
-segments, workouts, speech, off-target and history.
+segments, workouts, speech, cue timing, off-target and history.
 
 What the repo cannot carry is the GPS logs — they are location data about a
 child's routes and stay gitignored. Sam exports them from a ride's detail

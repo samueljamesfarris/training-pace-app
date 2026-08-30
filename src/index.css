@@ -179,3 +179,20 @@ select {
   color: var(--ink);
   background: var(--card);
 }
+
+/*
+ * Number spinners steal width from fields that are already narrow on a phone —
+ * a ladder rung showed 1200 as "120" with the arrows sitting on the last digit
+ * — and no thumb has ever successfully hit one. The field still accepts only
+ * numbers, and still raises the numeric keypad.
+ */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

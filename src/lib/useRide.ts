@@ -40,8 +40,13 @@ import {
   computeAutoAdvance,
   currentIndex,
   currentSegment,
+  isWorkoutComplete,
+  remaining,
+  segmentDistanceM,
+  segmentElapsedMs,
 } from './segments';
-import { elapsedMs, wallClockAfter, type RawFix, type SessionRecord } from './types';
+import { SegmentCoach, warningMeters } from './coach';
+import { elapsedMs, isIndoor, wallClockAfter, type RawFix, type SessionRecord } from './types';
 import { metersToMiles, sanePaceSecPerMile, type DistanceUnit } from './units';
 
 /** Pace to speak, or nothing — the same gate the display and the CSV use. */
@@ -54,11 +59,17 @@ import { loadMode, saveMode, type RideMode } from './mode';
 import { applyTheme, loadTheme, type Theme } from './theme';
 import {
   boundaryPhrases,
+  completionPhrases,
   DEFAULT_SPEECH,
+  halfwayPhrase,
+  nextUpPhrase,
+  offTargetPhrase,
   speakablePace,
   SpeechEngine,
   spokenSegmentName,
+  startPhrases,
   type SpeechSettings,
+  type UpNext,
 } from './speech';
 import { WakeLockManager, type WakeLockState } from './wakeLock';
 import {
@@ -90,6 +101,15 @@ export const COUNTDOWN_MS = 3000;
 const COUNTDOWN_STALE_MS = 2000;
 const PERSIST_MS = 1000;
 const FIX_FLUSH_MS = 2000;
+
+/**
+ * How long after a boundary tone the voice may start.
+ *
+ * The tone runs 1.5s and talking over it wastes both. On a plain timeout rather
+ * than the audio clock, because speech cannot be scheduled against it — and if
+ * a backgrounded tab drops the utterance, the beeps already carried the news.
+ */
+const SPEECH_AFTER_TONE_MS = 1700;
 
 function makeId(t: number) {
   return `${new Date(t).toISOString().replace(/[:.]/g, '-')}-${Math.random()
@@ -157,9 +177,14 @@ export function useRide() {
   const startSourceRef = useRef<() => void>(() => {});
   /** Late-bound so the tick can drive the off-target check. */
   const offTargetRef = useRef<(now: number) => void>(() => {});
+  /** Late-bound so the tick can drive the in-segment coaching cues. */
+  const coachRef = useRef<(now: number) => void>(() => {});
   const beeps = useRef(new BeepEngine()).current;
   const voice = useRef(new SpeechEngine()).current;
   const offTarget = useRef(new OffTargetWatcher()).current;
+  const coach = useRef(new SegmentCoach()).current;
+  /** The completion callout fires once; the last segment then runs into overtime. */
+  const completeAnnounced = useRef(false);
   /** Whole miles already announced this session, so each is called once. */
   const milesCalled = useRef(0);
   const wakeLock = useRef(new WakeLockManager()).current;
@@ -399,6 +424,9 @@ export function useRide() {
       settleRef.current(t);
       advanceRef.current();
       offTargetRef.current(t);
+      // After the advance, so a cue is always judged against the segment that
+      // is actually current on this tick.
+      coachRef.current(t);
     }, TICK_MS);
     return () => clearInterval(id);
   }, [engine]);
@@ -481,6 +509,18 @@ export function useRide() {
     [persistNow],
   );
 
+  /** Speak a run of phrases once the boundary tone has finished. */
+  const sayPhrases = useCallback(
+    (phrases: string[], delayMs = SPEECH_AFTER_TONE_MS) => {
+      if (phrases.length === 0) return;
+      if (!voice.settings.enabled || !audioRef.current.enabled) return;
+      window.setTimeout(() => {
+        for (const phrase of phrases) voice.say(phrase);
+      }, delayMs);
+    },
+    [voice],
+  );
+
   /**
    * Begin the session for real. `at` is the instant it started, which is the
    * end of the count-in rather than "now" — a stored instant, so the clock is
@@ -490,6 +530,8 @@ export function useRide() {
     (at: number) => {
       engine.resetForSession();
       offTarget.resetAll();
+      coach.resetAll();
+      completeAnnounced.current = false;
       milesCalled.current = 0;
       // Carry the warm-up fixes in so the log covers the standstill too.
       memLog.current = [...warmupLog.current];
@@ -516,8 +558,20 @@ export function useRide() {
       rememberLiveSession(rec.id);
       void putSession(rec);
       if (!sourceRef.current) startSource();
+      /*
+       * The first instruction, on the same delay every other boundary uses.
+       *
+       * Nothing is spoken *on* the go tone — at that moment he is clipping in
+       * and looking up, and a word on top of the tone is one thing too many.
+       * But a second and a half later, "Warmup, 2 miles, target 8 30" is
+       * exactly what someone running this alone needs, and the alternative is
+       * reading it off the screen while already moving.
+       */
+      if (voice.settings.coaching && rec.workout) {
+        sayPhrases(startPhrases(rec.workout.segments[0] ?? null));
+      }
     },
-    [engine, offTarget, sourceKind, startSource, selectedWorkout, mode],
+    [engine, offTarget, coach, sourceKind, startSource, selectedWorkout, mode, voice, sayPhrases],
   );
 
   /**
@@ -583,15 +637,21 @@ export function useRide() {
     // Drop the anchor so the stopped stretch never gets bridged into distance.
     engine.dropAnchor();
     offTarget.reset();
+    const wasRunning = sessionRef.current?.status === 'running';
     update((rec) =>
       rec.status !== 'running'
         ? rec
         : { ...rec, status: 'paused', pauses: [...rec.pauses, { start: Date.now(), end: null }] },
     );
-  }, [engine, update, offTarget]);
+    // Both buttons are tapped by feel, often without looking, so both say what
+    // they did. Immediately: there is no tone to wait out.
+    if (wasRunning && voice.settings.coaching) sayPhrases(['Paused'], 0);
+  }, [engine, update, offTarget, voice, sayPhrases]);
 
   const resume = useCallback(() => {
     engine.dropAnchor();
+    const wasPaused = sessionRef.current?.status === 'paused';
+    const seg = sessionRef.current ? currentSegment(sessionRef.current) : null;
     update((rec) => {
       if (rec.status !== 'paused') return rec;
       const pauses = rec.pauses.slice();
@@ -599,7 +659,12 @@ export function useRide() {
       if (last && last.end == null) pauses[pauses.length - 1] = { ...last, end: Date.now() };
       return { ...rec, status: 'running', pauses };
     });
-  }, [engine, update]);
+    // Restating the segment matters more than the word "resuming": after a
+    // stop at a crossing, which rep this is has genuinely been forgotten.
+    if (wasPaused && voice.settings.coaching) {
+      sayPhrases([seg ? `Resuming, ${spokenSegmentName(seg)}` : 'Resuming'], 0);
+    }
+  }, [engine, update, voice, sayPhrases]);
 
   const finish = useCallback(() => {
     const t = Date.now();
@@ -623,36 +688,59 @@ export function useRide() {
    * a rest lands on the correct segment rather than one behind.
    */
   /**
-   * Say what just finished and what has begun.
-   *
-   * Delayed past the 1.5s boundary tone so the two don't talk over each other,
-   * on a plain timeout — speech can't be scheduled on the audio clock, and if
-   * a backgrounded tab drops it, the beeps already carried the message.
+   * Say what just finished and — the part that matters when nobody is watching
+   * the screen — what has begun, how long it lasts and what to aim for.
    */
   const announceBoundary = useCallback(
     (rec: SessionRecord, closedIndex: number) => {
       if (!voice.settings.enabled || !audioRef.current.enabled) return;
       const rows = completedSegments(rec, Date.now(), engine.distanceMeters);
       const closed = rows[closedIndex];
-      const closedSeg = rec.workout?.segments[closedIndex] ?? null;
-      const nextSeg = rec.workout?.segments[closedIndex + 1] ?? null;
-      const phrases = boundaryPhrases(
-        closed
-          ? {
-              durationMs: closed.durationMs,
-              paceSecPerMile: sanePaceSecPerMile(closed.distanceMeters, closed.durationMs),
-              // A rep inside a set is not reported; only what comes next is.
-              inRepeat: closedSeg?.repeatIndex != null,
-            }
-          : null,
-        nextSeg ? spokenSegmentName(nextSeg) : null,
+      const segments = rec.workout?.segments ?? [];
+      const closedSeg = segments[closedIndex] ?? null;
+      const nextSeg = segments[closedIndex + 1] ?? null;
+      const up: UpNext | null = nextSeg
+        ? {
+            seg: nextSeg,
+            /*
+             * State the goal when it changes, not on every rep. On a set of
+             * eight the target is the same eight times, and by the third the
+             * voice is only using up the seconds after the tone.
+             */
+            sayTarget:
+              nextSeg.targetPaceSecPerMile != null &&
+              nextSeg.targetPaceSecPerMile !== closedSeg?.targetPaceSecPerMile,
+            /*
+             * "Last one" changes how a rep is run, so it is worth a word of its
+             * own. The end of the workout outranks the end of a set: on the
+             * final segment that is the more useful of the two facts.
+             */
+            last:
+              closedIndex + 1 === segments.length - 1
+                ? 'segment'
+                : nextSeg.kind === 'work' &&
+                    nextSeg.repeatIndex != null &&
+                    nextSeg.repeatIndex === nextSeg.repeatTotal
+                  ? 'rep'
+                  : null,
+          }
+        : null;
+      sayPhrases(
+        boundaryPhrases(
+          closed
+            ? {
+                durationMs: closed.durationMs,
+                paceSecPerMile: sanePaceSecPerMile(closed.distanceMeters, closed.durationMs),
+                // A rep inside a set is not reported; only what comes next is.
+                inRepeat: closedSeg?.repeatIndex != null,
+              }
+            : null,
+          up,
+          voice.settings.coaching,
+        ),
       );
-      if (phrases.length === 0) return;
-      window.setTimeout(() => {
-        for (const phrase of phrases) voice.say(phrase);
-      }, 1700);
     },
-    [engine, voice],
+    [engine, voice, sayPhrases],
   );
 
   const maybeAdvance = useCallback(() => {
@@ -708,6 +796,8 @@ export function useRide() {
     if (!rec) return;
     setResumable(null);
     engine.resetForSession(rec.distanceMeters);
+    coach.resetAll();
+    completeAnnounced.current = false;
     memLog.current = await getFixes(rec.id);
     fixBuffer.current = [];
     warmupLog.current = [];
@@ -728,7 +818,7 @@ export function useRide() {
     // must not start a watch, and resuming an outdoor one must.
     if (rec.mode) setMode(rec.mode);
     if (!sourceRef.current) startSourceRef.current();
-  }, [resumable, engine, beeps, setMode]);
+  }, [resumable, engine, beeps, setMode, coach]);
 
   const discardResumable = useCallback(async () => {
     const rec = resumable;
@@ -755,22 +845,28 @@ export function useRide() {
       const rec = sessionRef.current;
       if (!rec || rec.status !== 'paused') return;
       beeps.cancelPending();
+      // A different workout is a different set of cues. Without this, the new
+      // first segment inherits the old one's spent heads-up.
+      coach.resetAll();
+      completeAnnounced.current = false;
       update((r) => ({
         ...r,
         workout: w ? resolveWorkout(w) : null,
         boundaries: [{ at: Date.now(), distanceMeters: engine.distanceMeters }],
       }));
     },
-    [engine, update, beeps],
+    [engine, update, beeps, coach],
   );
 
   const clearSession = useCallback(() => {
     sessionRef.current = null;
     setSession(null);
     engine.resetForSession();
+    coach.resetAll();
+    completeAnnounced.current = false;
     memLog.current = [];
     setGps(engine.snapshot(Date.now()));
-  }, [engine]);
+  }, [engine, coach]);
 
   /** Freeze the JS loop for N seconds, then reconcile — the desk-side test of
    *  the timestamp timing model without backgrounding the browser. */
@@ -866,13 +962,96 @@ export function useRide() {
       const fired = offTarget.update(now, gpsRef.current.paceSecPerMile, target, toleranceSec);
       if (!fired) return;
       beeps.play('offTarget');
-      // "ease up" for too fast, "pick it up" for too slow — the beep says
-      // adjust, the word says which way.
-      window.setTimeout(() => voice.say(fired === 'fast' ? 'Ease up' : 'Pick it up'), 500);
+      // The beep says adjust, the word says which way, and the number says how
+      // far — "ease up" on its own leaves the runner guessing at the goal they
+      // are being asked to come back to.
+      window.setTimeout(
+        () => voice.say(offTargetPhrase(fired, voice.settings.coaching ? target : null)),
+        500,
+      );
     },
     [offTarget, beeps, voice, toleranceSec],
   );
   offTargetRef.current = checkOffTarget;
+
+  /**
+   * The cues that fall *inside* a segment: the heads-up before it ends, the one
+   * progress call on a long one, and the end of the workout.
+   *
+   * Driven from the tick rather than scheduled on the audio clock, because none
+   * of these can be known in advance — a distance segment has no end instant at
+   * all, and the words depend on numbers that only exist now. `SegmentCoach`
+   * owns the once-per-segment bookkeeping and the staleness rule.
+   */
+  const checkCoach = useCallback(
+    (now: number) => {
+      const rec = sessionRef.current;
+      if (!rec || rec.status !== 'running' || !rec.workout) return;
+      const seg = currentSegment(rec);
+      if (!seg) return;
+      const meters = engine.distanceMeters;
+
+      /*
+       * The last segment never auto-advances, so nothing else would ever mark
+       * the end of the workout. Indoors a distance segment measures nothing, so
+       * it can never read complete — which is right: the finish is his call.
+       */
+      if (!completeAnnounced.current && isWorkoutComplete(rec, now, meters)) {
+        completeAnnounced.current = true;
+        // A timed last segment already had its boundary tone scheduled; a
+        // distance one has no knowable end instant, so it sounds on arrival.
+        if (seg.end.type === 'distance') beeps.play('boundary');
+        const total = elapsedMs(rec, now);
+        sayPhrases(
+          completionPhrases(total, isIndoor(rec) ? null : sanePaceSecPerMile(meters, total)),
+        );
+        return;
+      }
+
+      // Nothing to measure a treadmill's distance segment against, so there is
+      // no honest progress to speak from. The same rule as everywhere else.
+      if (seg.end.type === 'distance' && isIndoor(rec)) return;
+
+      const total = seg.end.type === 'time' ? seg.end.seconds * 1000 : seg.end.meters;
+      const cue = coach.update({
+        index: currentIndex(rec),
+        kind: seg.end.type,
+        total,
+        left: remaining(rec, seg, now, meters),
+      });
+      if (!cue) return;
+
+      if (cue === 'warning') {
+        // Timed segments already have this beep scheduled against the audio
+        // clock; distance ones never could, so it is sounded here instead.
+        if (seg.end.type === 'distance') beeps.play('warning');
+        if (!voice.settings.coaching) return;
+        const leadIn =
+          seg.end.type === 'time'
+            ? `${WARNING_AT_SEC} seconds`
+            : `${warningMeters(total)} meters`;
+        sayPhrases([nextUpPhrase(leadIn, rec.workout.segments[currentIndex(rec) + 1] ?? null)], 0);
+        return;
+      }
+
+      if (!voice.settings.coaching) return;
+      // The segment's own average, not the instantaneous reading: the question
+      // at halfway is whether the effort is holding, and a 0.5 mph wobble moves
+      // the instantaneous pace by half a minute a mile.
+      sayPhrases(
+        [
+          halfwayPhrase(
+            isIndoor(rec)
+              ? null
+              : sanePaceSecPerMile(segmentDistanceM(rec, meters), segmentElapsedMs(rec, now)),
+          ),
+        ],
+        0,
+      );
+    },
+    [engine, beeps, voice, coach, sayPhrases],
+  );
+  coachRef.current = checkCoach;
 
   const elapsed = useMemo(
     () => (session ? elapsedMs(session, now) : 0),
