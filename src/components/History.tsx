@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react';
 import { deleteSession, getFixes, listSessions } from '../lib/db';
 import { completedSegments } from '../lib/segments';
-import { summarize, sortSessions, toCsv, toTextSummary } from '../lib/history';
+import {
+  exportBaseName,
+  summarize,
+  sortSessions,
+  toCsv,
+  toTextSummary,
+  toWorkbook,
+} from '../lib/history';
 import { buildShareCard } from '../lib/shareCard';
 import { shareCardFile } from '../lib/shareImage';
+import { buildXlsx } from '../lib/xlsx';
 import { isIndoor, type SessionRecord } from '../lib/types';
 import { averageMph, formatClock, formatMiles, formatPace, sanePaceSecPerMile } from '../lib/units';
 
@@ -27,12 +35,11 @@ function download(file: File): void {
   URL.revokeObjectURL(url);
 }
 
-/** Hand a string to the platform: share sheet if offered, download otherwise. */
-async function shareText(name: string, text: string, mime: string): Promise<string> {
-  const file = new File([text], name, { type: mime });
+/** Hand a file to the platform: share sheet if offered, download otherwise. */
+async function shareFile(file: File): Promise<string> {
   if (navigator.canShare?.({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: name });
+      await navigator.share({ files: [file], title: file.name });
       return 'Shared.';
     } catch (e) {
       if ((e as { name?: string }).name === 'AbortError') return '';
@@ -41,6 +48,9 @@ async function shareText(name: string, text: string, mime: string): Promise<stri
   download(file);
   return 'Downloaded.';
 }
+
+/** Excel's, and the one iOS matches against to offer Numbers. */
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /**
  * The splits as a picture, straight into the share sheet.
@@ -215,20 +225,45 @@ function Detail({
             Copy summary
           </button>
           <button
-            onClick={async () => setNote((await shareText(`${rec.id}.csv`, toCsv(rec), 'text/csv')) || null)}
+            onClick={async () =>
+              setNote(
+                (await shareFile(
+                  new File([toCsv(rec)], `${exportBaseName(rec)}.csv`, { type: 'text/csv' }),
+                )) || null,
+              )
+            }
             className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
           >
             Export CSV
           </button>
           <button
+            onClick={async () =>
+              setNote(
+                (await shareFile(
+                  new File(
+                    [buildXlsx(toWorkbook(rec), rec.startedAt)],
+                    `${exportBaseName(rec)}.xlsx`,
+                    { type: XLSX_MIME },
+                  ),
+                )) || null,
+              )
+            }
+            className="h-[56px] rounded-2xl border-2 border-line text-base font-bold text-ink"
+          >
+            Export Excel
+          </button>
+          <button
             disabled={indoor || fixCount === 0}
             onClick={async () => {
               const fixes = await getFixes(rec.id);
+              // The raw log keeps the session id in its name: it is replayed
+              // against the engine from `tests/logs/`, where the id is what
+              // ties a file back to the ride it came from.
               setNote(
-                (await shareText(
-                  `${rec.id}-fixes.json`,
-                  JSON.stringify(fixes),
-                  'application/json',
+                (await shareFile(
+                  new File([JSON.stringify(fixes)], `${rec.id}-fixes.json`, {
+                    type: 'application/json',
+                  }),
                 )) || null,
               );
             }}

@@ -10,7 +10,7 @@
  * may be stated is testable without a canvas. `shareImage.ts` draws it.
  */
 
-import { summarize } from './history';
+import { exportBaseName, summarize } from './history';
 import { DEFAULT_TOLERANCE_SEC, deviation } from './offTarget';
 import { completedSegments } from './segments';
 import { isIndoor, type SessionRecord } from './types';
@@ -88,23 +88,6 @@ function when(ms: number): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-/** `tempo-repeats-2026-08-29.png` — a name that means something in a thread. */
-function fileNameFor(title: string, startedAt: number): string {
-  const slug =
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40) || 'session';
-  const d = new Date(startedAt);
-  const stamp = [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('-');
-  return `${slug}-${stamp}.png`;
 }
 
 /**
@@ -192,7 +175,7 @@ export function buildShareCard(rec: SessionRecord): ShareCard {
     columns,
     rows,
     note: hidden > 0 ? 'Every segment is in the CSV export.' : null,
-    fileName: fileNameFor(title, rec.startedAt),
+    fileName: `${exportBaseName(rec)}.png`,
   };
 }
 

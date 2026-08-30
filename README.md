@@ -134,10 +134,21 @@ Every session is kept locally. History lists them newest first; opening one
 shows the same summary and split table as the finish screen, with deltas where
 the segment had a goal.
 
-Four exports, all from the session detail: the summary as plain text to the
-clipboard, the split table as a PNG image, the splits as CSV, and the raw GPS
-log as JSON. All three files go through the share sheet where the platform
-offers it, so they land in Messages or iCloud rather than in Files.
+Five exports, all from the session detail: the summary as plain text to the
+clipboard, the split table as a PNG image, the splits as CSV, the same splits
+as an Excel workbook, and the raw GPS log as JSON. All four files go through
+the share sheet where the platform offers it, so they land in Messages or
+iCloud rather than in Files. They are named for the workout and the date —
+`tuesday-800-repeats-2026-08-28.xlsx` — except the raw log, which keeps the
+session id, because that is what ties a replayed log back to its ride.
+
+The workbook is written by hand, with no library: an xlsx is a zip of a few
+small XML parts, and zip allows entries to be stored rather than compressed, so
+the format costs about a hundred and fifty lines instead of a dependency larger
+than the rest of the app. It carries a Summary sheet and a Splits sheet with a
+frozen header. What it buys over the CSV is types — every duration and pace is
+a real fraction of a day, so a column of splits sums and the pace column
+averages, where CSV hands a spreadsheet text and hopes.
 
 The image is drawn on a canvas rather than rasterized from the DOM — the
 headline numbers and one row per segment, with each goal delta marked against

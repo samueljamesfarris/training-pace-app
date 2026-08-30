@@ -50,8 +50,17 @@ being correct and dull over clever.
   from the same boundary instant the countdown displays.
 - `src/lib/speech.ts` — spoken cues layered on the beeps. Best-effort by
   design: iOS drops speech silently, so nothing may depend on it.
-- `src/lib/history.ts` — session summaries, CSV and text export. Pure, so the
-  export formats are testable without a DOM.
+- `src/lib/history.ts` — session summaries and every export format: text, CSV,
+  and the workbook model. Pure, so the export formats are testable without a
+  DOM.
+- `src/lib/xlsx.ts` — a minimal .xlsx writer, dependency-free. An xlsx is a zip
+  of small XML parts, and zip permits stored entries, so no compressor is
+  needed. Durations and paces are written as real fractions of a day, which is
+  the whole reason to write one rather than lean on the CSV.
+- `src/lib/shareCard.ts` / `shareImage.ts` — the splits as a picture. The first
+  is pure and decides what the card states; the second draws it on a canvas.
+  The palette there is deliberately fixed rather than themed, because the image
+  leaves the app.
 - `src/lib/offTarget.ts` — pace against a segment's goal. Pure and stateful:
   five continuous seconds outside the band before it speaks, twenty between
   warnings, and a direction change restarts the hold.
