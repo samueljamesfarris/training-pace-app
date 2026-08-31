@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { DevPanel } from './components/DevPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Guide } from './components/Guide';
+import { InstallBanner, InstallSheet } from './components/InstallPrompt';
 import { History } from './components/History';
 import { FinishCard } from './components/FinishCard';
 import { ResumePrompt } from './components/ResumePrompt';
@@ -9,6 +10,7 @@ import { RideScreen } from './components/RideScreen';
 import { SharedWorkout, adoptWorkout } from './components/SharedWorkout';
 import { WorkoutPicker } from './components/WorkoutPicker';
 import { loadDevEnabled, saveDevEnabled } from './lib/devMode';
+import { canPromptInstall, installContext } from './lib/install';
 import { guideSeen } from './lib/onboarding';
 import {
   clearPendingLink,
@@ -41,6 +43,16 @@ function AppContents() {
   const [devEnabled, setDevEnabled] = useState(loadDevEnabled);
   const [devNote, setDevNote] = useState<string | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
+  /*
+   * Read once: installing opens a separate context with its own storage, so
+   * this cannot change under a running page — the installed app is always a
+   * fresh launch. Dismissal is state rather than storage, so it lasts the
+   * launch and is offered again on the next one; somebody who actually
+   * installs never sees it again, because the context stops saying so.
+   */
+  const [installCtx] = useState(installContext);
+  const [installDismissed, setInstallDismissed] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
 
   useEffect(() => {
     registerServiceWorker(() => setUpdateReady(true));
@@ -132,6 +144,18 @@ function AppContents() {
 
   const running = ride.session?.status === 'running';
 
+  /*
+   * Only on the idle screen. Mid-session whoever is holding the phone has
+   * plainly got in already, and the notice run pushes the numbers down — an
+   * install offer is not worth moving the pace readout mid-rep.
+   */
+  const showInstallBanner =
+    canPromptInstall(installCtx) &&
+    !installDismissed &&
+    !installOpen &&
+    !ride.session &&
+    !ride.resumable;
+
   return (
     <div className="relative h-full overflow-hidden">
       <RideScreen
@@ -142,13 +166,28 @@ function AppContents() {
         onOpenPicker={() => setPickerOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenGuide={() => setGuideOpen(true)}
+        notice={
+          showInstallBanner ? (
+            <InstallBanner
+              ctx={installCtx}
+              onOpen={() => setInstallOpen(true)}
+              onDismiss={() => setInstallDismissed(true)}
+            />
+          ) : null
+        }
       />
       <FinishCard ride={ride} onOpenHistory={() => setHistoryOpen(true)} />
       {pickerOpen && <WorkoutPicker ride={ride} onClose={() => setPickerOpen(false)} />}
       {devOpen && (
         <DevPanel ride={ride} onClose={() => setDevOpen(false)} onHideDev={toggleDev} />
       )}
-      {guideOpen && <Guide onClose={() => setGuideOpen(false)} />}
+      {guideOpen && (
+        <Guide
+          onClose={() => setGuideOpen(false)}
+          onOpenInstall={canPromptInstall(installCtx) ? () => setInstallOpen(true) : undefined}
+        />
+      )}
+      {installOpen && <InstallSheet ctx={installCtx} onClose={() => setInstallOpen(false)} />}
       {historyOpen && <History onClose={() => setHistoryOpen(false)} />}
       <ResumePrompt ride={ride} />
       {shared && (

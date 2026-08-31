@@ -16,6 +16,9 @@ interface Page {
   lines: string[];
 }
 
+/** Matched by title so the button follows the page if the order changes. */
+const INSTALL_PAGE = 'Install it first';
+
 const PAGES: Page[] = [
   {
     title: 'What this is',
@@ -25,7 +28,7 @@ const PAGES: Page[] = [
     ],
   },
   {
-    title: 'Install it first',
+    title: INSTALL_PAGE,
     lines: [
       'On iPhone: tap Share, then Add to Home Screen, and open it from the icon.',
       'That is what lets it hold the screen awake through a workout and keep running with no signal. In a browser tab, the screen will sleep on you mid-rep.',
@@ -55,10 +58,19 @@ const PAGES: Page[] = [
   },
 ];
 
-export function Guide({ onClose }: { onClose: () => void }) {
+export function Guide({
+  onClose,
+  onOpenInstall,
+}: {
+  onClose: () => void;
+  /** Absent once it is installed, or where the advice doesn't apply. */
+  onOpenInstall?: () => void;
+}) {
   const [page, setPage] = useState(0);
   const current = PAGES[page]!;
   const last = page === PAGES.length - 1;
+  /* The install page is the one page with something to do, not just to read. */
+  const showInstall = onOpenInstall != null && current.title === INSTALL_PAGE;
 
   function done() {
     markGuideSeen();
@@ -84,6 +96,17 @@ export function Guide({ onClose }: { onClose: () => void }) {
               {line}
             </p>
           ))}
+
+          {/* Telling somebody to tap Share is the step that loses them; this is
+              the way back to the pictures once the banner has been dismissed. */}
+          {showInstall && (
+            <button
+              onClick={onOpenInstall}
+              className="mt-6 h-[60px] w-full rounded-2xl bg-next text-lg font-black text-next-ink"
+            >
+              Show me how
+            </button>
+          )}
         </div>
       </div>
 

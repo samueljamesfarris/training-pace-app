@@ -83,6 +83,43 @@ it only opens itself once, and "How it works" on the home screen brings it
 back. The stored flag is the guide's version, so a later rewrite can show
 itself again to someone who read the old one.
 
+### Getting onto the home screen
+
+iOS has no `beforeinstallprompt`: a home-screen install cannot be triggered,
+offered, or even observed by a web app, so the whole of the mechanism is
+telling somebody what to tap. Telling them in one sentence, once, on page two
+of a guide they can skip, was not enough — "tap Share" assumes you know that
+the box with the arrow is called Share, and that the entry sits below the fold
+of the sheet, past a row of app icons.
+
+So the ride screen carries an install bar whenever it is running in a browser
+tab on iOS, in the same notice run as the GPS error and the wake-lock warning
+— through the layout rather than over it, because docked at the bottom it
+covered the workout row and START. It opens a sheet with the three steps and
+the glyphs drawn inline, in the sentence naming them. The guide's install page
+opens the same sheet, so dismissing the bar is not a dead end.
+
+The bar is dismissed for the launch, not for good, and somebody who takes the
+advice never sees it again: an installed app reports itself as installed and
+the bar cannot render at all.
+
+`install.ts` decides which of three things to say, because the browsers differ
+in what they can even do. Safari has the share button in the toolbar. Chrome,
+Firefox and Edge on iOS put it elsewhere and do not all carry the entry, so
+they get the steps plus a way out to Safari. An in-app browser — what Gmail,
+Instagram, Slack or Facebook opens a link in — has no entry anywhere in its
+sheet, and no wording can help: it is told to escape to Safari first, with the
+address on the clipboard for when its menu is somewhere unexpected. That last
+case is the one that was silently eating people, since a link sent through a
+messaging app is exactly how a stranger first meets the app.
+
+Two tests decide it, because neither is enough alone: a list of apps that
+announce themselves in the agent string, and the absence of a `Safari/` token,
+which every real browser keeps and a plain embedded web view leaves off. The
+Google app is why the list exists — its agent is Safari's exactly. Agent
+sniffing is only defensible when it is pinned down, so `tests/install.test.ts`
+runs the decision over real agent strings.
+
 ### Sharing a workout
 
 Every workout card has Share, which builds a link carrying the whole workout

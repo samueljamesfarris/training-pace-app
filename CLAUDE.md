@@ -214,8 +214,26 @@ and the reason to be careful before piling more on top.
   about a phone in the dark. Whether the three-card shape is faster to build
   with than the old list is the actual question.
 
+- **The install bar and the install sheet.** Driven at 390×844 and in
+  landscape with spoofed agent strings, which caught the banner covering START
+  and the step glyphs stranding themselves on the right margin, and proves
+  nothing about a real phone. The open questions are whether the in-app
+  browser detection fires on the apps Sam actually sends links through, and
+  whether somebody who has never seen the app can follow the three steps
+  without help. That last one is the whole point of the change.
+
 - **Rotation.** Portrait to landscape and back. This was got wrong twice; the
   shell is now `position: fixed; inset: 0` and a desktop check is not proof.
+- **Whether a browser tab really does sleep mid-rep.** Guide page 2 says so,
+  and it is the reason the install is framed as a prerequisite. Safari has
+  supported the Screen Wake Lock API in ordinary tabs for a while now and
+  `WakeLockManager` does nothing install-specific, so the claim may simply be
+  out of date. The DEV panel reports the lock state; settling it is a minute
+  with the phone. If the lock holds in a tab, the install becomes a
+  convenience rather than a gate, and the guide should be reordered to let a
+  first-time user run something before being asked to change their home
+  screen.
+
 - **The DEV → Screen readout.** What iOS actually reports for safe-area insets,
   and whether it says *installed* or *browser tab*. If the top inset reads 0 in
   the installed app, the 6px of breathing room above it is masking a different

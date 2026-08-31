@@ -470,15 +470,24 @@ export function isInstalledApp(): boolean {
  */
 export function isIOS(): boolean {
   try {
-    const ua = navigator.userAgent;
-    return (
-      /iPhone|iPad|iPod/.test(ua) ||
-      // iPadOS reports itself as a Mac; the touch points give it away.
-      (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
-    );
+    return isIOSAgent(navigator.userAgent, navigator.maxTouchPoints);
   } catch {
     return false;
   }
+}
+
+/**
+ * The test itself, over values rather than over `navigator`.
+ *
+ * Split out so the install prompt can decide what to say against a table of
+ * real agent strings, which is the only way to check agent sniffing at all.
+ */
+export function isIOSAgent(ua: string, maxTouchPoints: number): boolean {
+  return (
+    /iPhone|iPad|iPod/.test(ua) ||
+    // iPadOS reports itself as a Mac; the touch points give it away.
+    (/Macintosh/.test(ua) && maxTouchPoints > 1)
+  );
 }
 
 /*

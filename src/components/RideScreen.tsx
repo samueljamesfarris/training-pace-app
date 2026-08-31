@@ -159,6 +159,7 @@ export function RideScreen({
   onOpenPicker,
   onOpenHistory,
   onOpenGuide,
+  notice,
 }: {
   ride: Ride;
   /** Whether the dev button is on offer at all. */
@@ -169,6 +170,15 @@ export function RideScreen({
   onOpenPicker: () => void;
   onOpenHistory: () => void;
   onOpenGuide: () => void;
+  /**
+   * An extra line for the notice run, decided by the caller.
+   *
+   * It goes through the layout rather than over it: everything in that strip
+   * pushes the numbers down instead of covering them, which is the property
+   * that matters — a notice floating above the controls hides the buttons the
+   * app exists for.
+   */
+  notice?: React.ReactNode;
 }) {
   const { gps, session, elapsed } = ride;
   const [finishArmed, setFinishArmed] = useState(false);
@@ -299,6 +309,10 @@ export function RideScreen({
           Not saving to storage: {ride.persistError}
         </div>
       )}
+
+      {/* Last in the run: anything above it is about the session in progress
+          and outranks an offer that will still be there next launch. */}
+      {notice}
 
       {/* min-h-0 lets this shrink inside the flex column, and the overflow is
           its own — so in landscape the numbers scroll here while the header
