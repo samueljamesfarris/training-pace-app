@@ -109,8 +109,14 @@ These were each found by a bug on a real ride. Don't undo them casually.
   nothing silently cost the structure.
 
 - **Pace is far twitchier than speed.** A 0.5 mph wobble at 7 mph moves pace by
-  ~35 s/mile. Hence the 5s window, the spike gate, the pace hysteresis, and the
-  3 s/mile deadband. Tune against real logs, not intuition.
+  ~35 s/mile. Hence the 12s window, the spike gate, the pace hysteresis, and
+  the 6 s/mile deadband. The window is read at two horizons — 12s for what
+  the speed has been, 3s for what it is now — and the display follows the
+  fast one only when the two disagree by more than noise, which is how it is
+  both quiet on a tempo and quick off the line. The shown pace is then judged
+  once a second and closes the gap by halves. Tune against real logs, not
+  intuition: a 5s window with a 3 s/mile deadband moved the number 39 times a
+  minute at a steady effort on synthetic noise; this moves it 8.
 - **A parked phone's wander is bounded; real movement isn't.** That asymmetry
   is what the odometer's noise floor relies on. Confirming movement needs
   ~2 mph, releasing it needs under 1 mph — noise can't start it, and a slow jog

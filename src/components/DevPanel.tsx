@@ -305,7 +305,7 @@ export function DevPanel({
             label="Rolling window"
             value={ride.smoothingMs}
             min={500}
-            max={10000}
+            max={20000}
             step={250}
             onChange={ride.setSmoothingMs}
             format={(v) => `${(v / 1000).toFixed(2)} s`}

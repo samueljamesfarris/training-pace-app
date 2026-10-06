@@ -84,17 +84,25 @@ export class RollingSpeed {
     if (this.samples.length) this.trim(this.samples[this.samples.length - 1]!.t);
   }
 
-  /** Weighted mean of samples inside the window, or null if the window is empty. */
-  value(now: number): number | null {
+  /**
+   * Weighted mean of samples inside the window, or null if the window is empty.
+   *
+   * `horizonMs` reads the same samples over a shorter span than the window
+   * keeps, so one buffer can answer both "what has the speed been lately" and
+   * "what is it right now". Null when nothing falls inside the horizon.
+   */
+  value(now: number, horizonMs = this.windowMs): number | null {
     this.trim(now);
     if (this.samples.length === 0) return null;
+    const span = Math.min(horizonMs, this.windowMs);
     let sum = 0;
     let weight = 0;
     for (const s of this.samples) {
       const age = now - s.t;
+      if (age > span) continue;
       // Newest ≈ 1, oldest ≈ 0.15, never zero so a single stale-ish sample
       // still produces a number rather than a hole.
-      const w = Math.max(0.15, 1 - age / this.windowMs);
+      const w = Math.max(0.15, 1 - age / span);
       sum += s.v * w;
       weight += w;
     }
