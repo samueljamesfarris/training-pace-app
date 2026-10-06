@@ -137,6 +137,13 @@ These were each found by a bug on a real ride. Don't undo them casually.
   pill reading 0:28.
 - **Resume excludes the dead gap** using the `lastSeenAt` heartbeat, so a crash
   doesn't inflate the workout.
+- **iOS closes the IndexedDB connection when it suspends the page**, and
+  nothing throws at the time. The next write fails with "Attempt to delete
+  range from database without an in-progress transaction", and so does every
+  write after it unless the connection is reopened. `db.ts` drops the cached
+  connection on `onclose` and on any failure, retries once on a fresh one, and
+  a successful write clears the banner. Found by pausing, leaving the app, and
+  coming back.
 - **Nothing may be awaited between a tap and `navigator.share`.** iOS gives the
   tap a short window in which a share sheet may be opened, and the first
   `await` spends it: the sheet never appears, nothing throws, and the screen

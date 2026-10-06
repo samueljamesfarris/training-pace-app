@@ -471,9 +471,9 @@ export function useRide() {
         fixCount: engine.fixCount,
         lastSeenAt: Date.now(),
       };
-      void putSession(merged).then(() => {
-        if (dbUnavailable) setPersistError(dbUnavailable);
-      });
+      // Null clears it: a connection iOS killed in the background is reopened
+      // by the next write, and the banner must come down when saving resumes.
+      void putSession(merged).then(() => setPersistError(dbUnavailable));
     },
     [engine],
   );

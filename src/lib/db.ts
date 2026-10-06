@@ -8,8 +8,26 @@ const FIXES = 'fixes';
 const WORKOUTS = 'workouts';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
-/** Set when persistence is unavailable (private mode, quota, old browser). */
+/**
+ * Set when the last write failed (private mode, quota, a dead connection).
+ * Cleared again by the next write that succeeds, so the banner it drives says
+ * "not saving" only while that is still true.
+ */
 export let dbUnavailable: string | null = null;
+
+/**
+ * Forget the cached connection so the next call opens a fresh one.
+ *
+ * iOS closes the connection behind the app's back when it suspends the page —
+ * a pause, a trip to another app, and back. Nothing throws at the moment it
+ * happens; the next write just fails with WebKit's "Attempt to delete range
+ * from database without an in-progress transaction", and so does every write
+ * after it, for the rest of the ride. The connection was never reopened,
+ * because nothing knew it had gone.
+ */
+function dropConnection() {
+  dbPromise = null;
+}
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
@@ -32,10 +50,46 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(WORKOUTS, { keyPath: 'id' });
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
+    req.onsuccess = () => {
+      const db = req.result;
+      // The browser tells us when it closes the connection itself (page
+      // suspended, storage cleared, another tab upgrading). Forget it, so the
+      // next call opens a live one instead of writing into a dead one.
+      db.onclose = dropConnection;
+      db.onversionchange = () => {
+        db.close();
+        dropConnection();
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      dropConnection();
+      reject(req.error ?? new Error('IndexedDB open failed'));
+    };
   });
   return dbPromise;
+}
+
+/**
+ * Run one operation against the database, and if it fails, once more on a
+ * freshly opened connection.
+ *
+ * `onclose` is not guaranteed to fire before the next write lands on a
+ * connection iOS has already torn down, so a failure is also treated as
+ * evidence the connection is dead. One retry is enough: a quota error or
+ * private mode fails the same way twice, and that is the honest answer.
+ */
+async function withDb<T>(fn: (db: IDBDatabase) => Promise<T>): Promise<T> {
+  try {
+    return await fn(await openDb());
+  } catch (first) {
+    dropConnection();
+    try {
+      return await fn(await openDb());
+    } catch (second) {
+      throw second ?? first;
+    }
+  }
 }
 
 function tx<T>(
@@ -43,13 +97,16 @@ function tx<T>(
   mode: IDBTransactionMode,
   fn: (s: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  return openDb().then(
+  return withDb(
     (db) =>
       new Promise<T>((resolve, reject) => {
+        // `transaction()` throws synchronously on a closed connection; the
+        // executor turns that into a rejection, which withDb retries.
         const t = db.transaction(store, mode);
         const req = fn(t.objectStore(store));
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
+        t.onabort = () => reject(t.error ?? new Error('IndexedDB transaction aborted'));
       }),
   );
 }
@@ -57,13 +114,21 @@ function tx<T>(
 /**
  * Persistence must never take the workout down with it. Every call is
  * best-effort; a failure flips a flag the UI shows and the ride continues.
+ * A success clears it again, so a connection that died and was reopened does
+ * not leave the banner up for the rest of the ride.
  */
 function guard<T>(p: Promise<T>): Promise<T | null> {
-  return p.catch((e) => {
-    dbUnavailable = e?.message ?? String(e);
-    console.warn('[db]', e);
-    return null;
-  });
+  return p.then(
+    (r) => {
+      dbUnavailable = null;
+      return r;
+    },
+    (e) => {
+      dbUnavailable = e?.message ?? String(e);
+      console.warn('[db]', e);
+      return null;
+    },
+  );
 }
 
 export function putSession(rec: SessionRecord) {
@@ -84,7 +149,7 @@ export function listSessions(): Promise<SessionRecord[]> {
 export function appendFixes(sessionId: string, fixes: RawFix[]): Promise<void> {
   if (fixes.length === 0) return Promise.resolve();
   return guard(
-    openDb().then(
+    withDb(
       (db) =>
         new Promise<void>((resolve, reject) => {
           const t = db.transaction(FIXES, 'readwrite');
@@ -92,6 +157,7 @@ export function appendFixes(sessionId: string, fixes: RawFix[]): Promise<void> {
           for (const f of fixes) store.put({ ...f, sessionId });
           t.oncomplete = () => resolve();
           t.onerror = () => reject(t.error);
+          t.onabort = () => reject(t.error ?? new Error('IndexedDB transaction aborted'));
         }),
     ),
   ).then(() => undefined);
@@ -99,7 +165,7 @@ export function appendFixes(sessionId: string, fixes: RawFix[]): Promise<void> {
 
 export function getFixes(sessionId: string): Promise<RawFix[]> {
   return guard(
-    openDb().then(
+    withDb(
       (db) =>
         new Promise<RawFix[]>((resolve, reject) => {
           const t = db.transaction(FIXES, 'readonly');
@@ -182,7 +248,7 @@ const KEEP_FIX_SESSIONS = 20;
  */
 export async function pruneOldFixes(): Promise<number> {
   const pruned = await guard(
-    openDb().then(async (db) => {
+    withDb(async (db) => {
       const sessions = await new Promise<SessionRecord[]>((resolve, reject) => {
         const req = db.transaction(SESSIONS, 'readonly').objectStore(SESSIONS).getAll();
         req.onsuccess = () => resolve(req.result as SessionRecord[]);
@@ -208,7 +274,7 @@ export async function pruneOldFixes(): Promise<number> {
 /** Drop every raw fix belonging to one session. Returns 1 if any were removed. */
 async function deleteFixesFor(sessionId: string): Promise<number> {
   const removed = await guard(
-    openDb().then(
+    withDb(
       (db) =>
         new Promise<number>((resolve, reject) => {
           const t = db.transaction(FIXES, 'readwrite');
