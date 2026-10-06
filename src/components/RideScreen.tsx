@@ -245,7 +245,10 @@ export function RideScreen({
     !!workout && !!session && currentIndex(session) >= workout.segments.length - 1;
 
   return (
-    <div className="relative flex h-full flex-col bg-surface text-ink">
+    /* select-none on the whole screen, not just the buttons: a phone carried
+       in a hand gets gripped and jostled, and a text selection it starts is
+       iOS's other way into the editing UI the shake-to-undo prompt belongs to. */
+    <div className="relative flex h-full select-none flex-col bg-surface text-ink [-webkit-touch-callout:none]">
       <header className="flex items-center justify-between px-4 py-2">
         <div onClick={countDevTap}>
           {indoor ? <IndoorChip /> : <GpsChip ride={ride} />}
