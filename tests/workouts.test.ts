@@ -388,7 +388,16 @@ console.log('\n--- the ladder preset compiles to exactly what it always was ---'
 
 console.log('\n--- every preset carries a plan that compiles back to its blocks ---');
 {
+  // Michigan is the one shape the plan cannot hold — four sets with tempo
+  // pieces between them — so it ships as blocks alone, and the structure
+  // must not pretend otherwise by guessing a plan for it.
+  const PLANLESS = new Set(['michigan-2']);
   for (const w of PRESET_WORKOUTS) {
+    if (PLANLESS.has(w.id)) {
+      ok(`${w.id} is authored in blocks alone`, w.plan == null);
+      ok(`${w.id} is not mistaken for a plan`, inferPlan(w.blocks) == null);
+      continue;
+    }
     ok(`${w.id} has a plan`, w.plan != null);
     if (!w.plan) continue;
     eq(`${w.id} plan compiles to its own blocks`,

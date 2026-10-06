@@ -68,13 +68,16 @@ console.log('\n--- gps engine: haversine fallback when coords.speed is null ---'
   const e = new GpsEngine();
   let lat = 37.0, lon = -122.0;
   const mps = 10 / 2.2369362920544;
-  for (let i = 0; i < 10; i++) {
+  // The second fix sits 4.5 m from the first, inside its 6 m accuracy, so it
+  // honestly derives as 0 mph; the run has to outlast the smoothing window
+  // for that one sample to age out of the average.
+  for (let i = 0; i < 16; i++) {
     const t = base + i * 1000;
     const p = project(lat, lon, 90, i === 0 ? 0 : mps);
     lat = p.lat; lon = p.lon;
     e.ingest({ t, lat, lon, speed: null, accuracy: 6, altitude: null, heading: 90, source: 'sim' }, t);
   }
-  const s = e.snapshot(base + 9000);
+  const s = e.snapshot(base + 15_000);
   near('derived mph', mpsToMph(s.displayMps!), 10, 0.05);
   eq('flagged as haversine', s.derivedSpeed, true);
 }

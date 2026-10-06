@@ -17,11 +17,25 @@ const MIN_LEG_M = 5;
 const NOISE_FLOOR_FACTOR = 2;
 
 /**
- * Raised from 3s after the first real ride: pace is far twitchier than speed
- * (a 0.5 mph wobble at 7 mph moves pace by ~35 s/mile), so the hero number
- * churned. 5s costs a couple of seconds of lag and visibly settles it.
+ * Raised from 3s after the first real ride, and again from 5s after the
+ * second: pace is far twitchier than speed (a 0.5 mph wobble at 7 mph moves
+ * pace by ~35 s/mile), and a 5s window still left it flickering every second
+ * at a steady effort. The lag a long window costs on a real change of pace is
+ * paid by the fast horizon below instead, so this one only has to be quiet.
  */
-export const DEFAULT_SMOOTHING_MS = 5000;
+export const DEFAULT_SMOOTHING_MS = 12_000;
+/**
+ * Two readings of the same samples: the long window says what the speed has
+ * been, the fast horizon says what it is now. While they agree the long one
+ * is shown and the noise averages out; when they part company the pace has
+ * genuinely changed — a rep has started, a rest has begun — and the display
+ * follows the fast one, within a couple of seconds instead of ten. This is
+ * how a watch manages to be both steady on a tempo and quick off the line.
+ */
+const FAST_HORIZON_MS = 3000;
+/** Disagreement below this, in m/s, is noise; above the next one it is real. */
+const BLEND_FLOOR_MPS = 0.35;
+const BLEND_CEILING_MPS = 0.9;
 
 /** Below this the phone is parked; show a clean 0.0 rather than noise. */
 const STATIONARY_MPH = 0.5;
@@ -32,7 +46,16 @@ const STATIONARY_MPH = 0.5;
  */
 const PACE_HYSTERESIS_MS = 2000;
 /** Don't move the shown pace for less than this, in seconds per mile. */
-const PACE_DEADBAND_SEC = 3;
+const PACE_DEADBAND_SEC = 6;
+/**
+ * The shown pace is re-judged once a second, not on every repaint, and it
+ * closes on the measured value by halves rather than in one jump: a nudge of
+ * noise becomes a single small step and a real change arrives over three or
+ * four seconds instead of landing all at once. A rate of change rather than
+ * a bare average — the number moves the way a speedometer needle does.
+ */
+const PACE_UPDATE_MS = 1000;
+const PACE_APPROACH = 0.5;
 /**
  * Movement has to be sustained, not momentary. Rocking a phone on a handlebar
  * mount throws single-second bursts well past any instantaneous speed gate, and
@@ -98,6 +121,8 @@ export class GpsEngine {
   private belowSince: number | null = null;
   private paceValid = false;
   private shownPaceSec: number | null = null;
+  /** When the shown pace was last judged, for the once-a-second cadence. */
+  private paceJudgedAt: number | null = null;
   /** Recent fixes, newest first, for the Haversine baseline. */
   private recent: RawFix[] = [];
   private movingSince: number | null = null;
@@ -299,18 +324,43 @@ export class GpsEngine {
 
     if (!this.paceValid || !sane) {
       this.shownPaceSec = null;
+      this.paceJudgedAt = null;
       return;
     }
     const target = 3600 / mph;
-    if (this.shownPaceSec == null || Math.abs(target - this.shownPaceSec) >= PACE_DEADBAND_SEC) {
+    if (this.shownPaceSec == null) {
       this.shownPaceSec = target;
+      this.paceJudgedAt = now;
+      return;
     }
+    if (this.paceJudgedAt != null && now - this.paceJudgedAt < PACE_UPDATE_MS) return;
+    this.paceJudgedAt = now;
+    const diff = target - this.shownPaceSec;
+    if (Math.abs(diff) < PACE_DEADBAND_SEC) return;
+    // Half the gap, but never a step smaller than the deadband, or the last
+    // few seconds of a change would never arrive.
+    const step = Math.min(Math.abs(diff), Math.max(PACE_DEADBAND_SEC, Math.abs(diff) * PACE_APPROACH));
+    this.shownPaceSec += Math.sign(diff) * step;
+  }
+
+  /**
+   * The speed to show: the long average, pulled toward the fast horizon in
+   * proportion to how far the two have parted. See `FAST_HORIZON_MS`.
+   */
+  private blendedMps(now: number): number | null {
+    const slow = this.smoother.value(now);
+    if (slow == null) return null;
+    const fast = this.smoother.value(now, FAST_HORIZON_MS);
+    if (fast == null) return slow;
+    const gap = Math.abs(fast - slow);
+    const w = Math.min(1, Math.max(0, (gap - BLEND_FLOOR_MPS) / (BLEND_CEILING_MPS - BLEND_FLOOR_MPS)));
+    return slow + w * (fast - slow);
   }
 
   snapshot(now: number): GpsSnapshot {
     const stale = this.isStale(now);
     if (!stale) {
-      const v = this.smoother.value(now);
+      const v = this.blendedMps(now);
       if (v != null) this.frozenMps = v;
       const mph = this.frozenMps == null ? null : this.frozenMps * MPS_TO_MPH;
       this.updatePaceDisplay(now, mph);
@@ -359,6 +409,7 @@ export class GpsEngine {
     this.belowSince = null;
     this.paceValid = false;
     this.shownPaceSec = null;
+    this.paceJudgedAt = null;
     this.movingSince = null;
     this.stoppedSince = null;
     this.moving = false;

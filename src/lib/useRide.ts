@@ -471,9 +471,9 @@ export function useRide() {
         fixCount: engine.fixCount,
         lastSeenAt: Date.now(),
       };
-      void putSession(merged).then(() => {
-        if (dbUnavailable) setPersistError(dbUnavailable);
-      });
+      // Null clears it: a connection iOS killed in the background is reopened
+      // by the next write, and the banner must come down when saving resumes.
+      void putSession(merged).then(() => setPersistError(dbUnavailable));
     },
     [engine],
   );
@@ -587,6 +587,14 @@ export function useRide() {
    */
   const beginCountdown = useCallback(() => {
     if (sessionRef.current || countdownRef.current != null) return;
+    // Nothing on the ride screen is typed into, so nothing should still hold
+    // the keyboard's focus from the builder. A field left focused is what
+    // keeps iOS's "Undo Typing" prompt armed for a shake of the phone; the
+    // app cannot clear that history, but it can stop pointing at it.
+    if (typeof document !== 'undefined') {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    }
     beeps.init();
     voice.warm();
     // No-op indoors, and harmless if the watch is already running.

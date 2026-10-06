@@ -505,7 +505,47 @@ function preset(id: string, name: string, plan: WorkoutPlan): WorkoutDef {
 const time = (seconds: number): EndCondition => ({ type: 'time', seconds });
 const dist = (meters: number): EndCondition => ({ type: 'distance', meters });
 
+/**
+ * Michigan 2.0, as it came off the coach's sheet.
+ *
+ * Four sets with tempo pieces between them, which the structured plan — one
+ * main section — cannot hold, so this one is authored in blocks and opens in
+ * the advanced editor. The sheet's "rest for everything is 2-3ish minutes of
+ * transition before the next rep" is taken as 2:30: each set drops its closing
+ * jog and a transition follows instead, and the final set, which states no
+ * rest of its own, gets the same. Targets are left to the runner, so the
+ * voice gives the step and its length and leaves the pace to him.
+ */
+function michigan(): WorkoutDef {
+  const transition = (): SegmentDef => ({ name: 'Transition', kind: 'recovery', end: time(150) });
+  const tempo = (): SegmentDef => ({ name: 'Tempo', kind: 'work', end: time(7 * 60) });
+  const set = (reps: number, name: string, onSec: number, jogSec: number): WorkoutBlock => ({
+    ...block(reps, [
+      { name, kind: 'work', end: time(onSec) },
+      { name: 'Jog', kind: 'recovery', end: time(jogSec) },
+    ]),
+    dropFinalStep: true,
+  });
+  return {
+    id: 'michigan-2',
+    name: 'Michigan 2.0',
+    builtIn: true,
+    blocks: [
+      block(1, [{ name: 'Warmup', kind: 'warmup', end: dist(2 * MILE) }]),
+      set(4, '800 pace', 30, 60),
+      block(1, [transition(), tempo(), transition()]),
+      set(4, 'Mile pace', 70, 170),
+      block(1, [transition(), tempo(), transition()]),
+      set(4, '800 pace', 30, 60),
+      block(1, [transition(), tempo(), transition()]),
+      set(2, 'Max', 60, 150),
+      block(1, [{ name: 'Cooldown', kind: 'cooldown', end: dist(2 * MILE) }]),
+    ],
+  };
+}
+
 export const PRESET_WORKOUTS: WorkoutDef[] = [
+  michigan(),
   preset('on-off-2min-30s-x4', '4 × (2 min on / 30 s rest)', {
     warmup: null,
     main: {

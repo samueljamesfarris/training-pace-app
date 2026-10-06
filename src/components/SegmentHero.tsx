@@ -1,4 +1,5 @@
 import {
+  completedSegments,
   currentIndex,
   currentSegment,
   isWorkoutComplete,
@@ -13,9 +14,11 @@ import {
   countdownUnit,
   formatClock,
   formatCountdown,
+  formatPaceSeconds,
   formatRemaining,
   metersToMiles,
   remainingLabel,
+  sanePaceSecPerMile,
   type DistanceUnit,
 } from '../lib/units';
 import { KIND_LABEL, MILE, type SegmentDef, type SegmentKind } from '../lib/workouts';
@@ -69,6 +72,14 @@ export function SegmentHero({
   const seg = currentSegment(session);
   const next = onDeckSegment(session);
   if (!seg) return null;
+
+  // The rep that just closed: on an interval set, how the last one went is
+  // the number a coach at the line would have read out, and it was gone from
+  // the screen the instant the next one began. Its pace is stated only when
+  // it would be stated anywhere else — `sanePaceSecPerMile` is the one rule.
+  const idx = currentIndex(session);
+  const last = idx > 0 ? completedSegments(session, now, distanceMeters)[idx - 1] : undefined;
+  const lastPace = last && measuring ? sanePaceSecPerMile(last.distanceMeters, last.durationMs) : null;
 
   const unmeasurable = !measuring && seg.end.type === 'distance';
   // Narrowed here so the unit choice can read the segment's own length: it is
@@ -163,14 +174,22 @@ export function SegmentHero({
 
       {band}
 
-      <div className="mt-2 rounded-full bg-raised px-4 py-1 text-sm font-bold">
-        {next ? (
-          <>
-            <span className="text-muted">NEXT</span> {next.name} · {endLabel(next)}
-          </>
-        ) : (
-          <span className="text-muted">LAST SEGMENT</span>
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+        {last && (
+          <div className="rounded-full bg-raised px-3 py-1 text-sm font-bold">
+            <span className="text-muted">LAST</span> {last.name} · {formatClock(last.durationMs)}
+            {lastPace != null && <> · {formatPaceSeconds(lastPace)}</>}
+          </div>
         )}
+        <div className="rounded-full bg-raised px-3 py-1 text-sm font-bold">
+          {next ? (
+            <>
+              <span className="text-muted">NEXT</span> {next.name} · {endLabel(next)}
+            </>
+          ) : (
+            <span className="text-muted">LAST SEGMENT</span>
+          )}
+        </div>
       </div>
     </section>
   );

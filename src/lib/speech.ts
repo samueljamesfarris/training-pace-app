@@ -146,11 +146,13 @@ export function speakableLength(seg: SpokenSegment['end']): string {
  * do with how long the rep is.
  */
 function nameCarriesLength(baseName: string): boolean {
+  const n = baseName.trim();
+  // A bare quantity — "800m", "400", "2 min", "1.5 miles" — or a bare unit
+  // word, "Mile". Not any name with a digit in it: "800 pace" is an effort,
+  // and a 30-second rep at it still needs its 30 seconds said.
   return (
-    /\d/.test(baseName) ||
-    /\b(mile|miles|meter|meters|min|mins|minute|minutes|sec|secs|second|seconds)\b/i.test(
-      baseName,
-    )
+    /^\d+(\.\d+)?\s*(m|meters?|k|km|mi|miles?|min|mins|minutes?|s|secs?|seconds?)?$/i.test(n) ||
+    /^(half|quarter)?\s*(mile|miles|meter|meters|minute|minutes|second|seconds)$/i.test(n)
   );
 }
 

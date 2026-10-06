@@ -124,6 +124,23 @@ console.log('\n--- the instruction: what this is, how long, what to aim for ---'
   );
   // "800 meters number 2, 800 meters" is one fact read twice, at the moment
   // there is least room for it.
+  // "800 pace" is an effort, not a length: the digit in it must not swallow
+  // the "30 seconds" a rep at that effort still needs. Same for "Mile pace".
+  eq(
+    'a name that only mentions a distance still gets its length',
+    segmentInstruction({ name: '800 pace 1', baseName: '800 pace', repeatIndex: 1, end: { type: 'time', seconds: 30 } }),
+    '800 pace number 1, 30 seconds',
+  );
+  eq(
+    'an effort named after a distance still gets its length',
+    segmentInstruction({ name: 'Mile pace 2', baseName: 'Mile pace', repeatIndex: 2, end: { type: 'time', seconds: 70 } }),
+    'Mile pace number 2, 1 minute 10',
+  );
+  eq(
+    'a bare unit word carries its length',
+    segmentInstruction({ name: 'Mile 2', baseName: 'Mile', repeatIndex: 2, end: { type: 'distance', meters: 1609.344 } }),
+    'Mile number 2',
+  );
   eq(
     'a name that carries its own length does not repeat it',
     segmentInstruction({ name: '800m 2', baseName: '800m', repeatIndex: 2, end: { type: 'distance', meters: 800 } }),
