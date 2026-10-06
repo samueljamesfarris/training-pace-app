@@ -88,7 +88,7 @@ itself again to someone who read the old one.
 Every workout card has Share, which builds a link carrying the whole workout
 in the URL's fragment — no server, no account, and a link that still opens an
 installed app offline. An ordinary workout comes to about 160 characters and
-the longest preset to about 700, so either sends in a text message. Sharing goes through the platform share sheet where
+the longest preset, Michigan 2.0 at nine blocks, to about 1,060, so either sends in a text message. Sharing goes through the platform share sheet where
 there is one, then the clipboard, then the raw link on screen.
 
 Opening a link *offers* the workout rather than installing it, and accepting
