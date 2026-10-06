@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACCURACY_GATE_M } from '../lib/gpsEngine';
-import { completedSegments, currentIndex } from '../lib/segments';
-import { formatPaceSeconds as fmtPace } from '../lib/units';
+import {
+  completedSegments,
+  currentIndex,
+  segmentDistanceM,
+  segmentElapsedMs,
+} from '../lib/segments';
+import { formatPaceSeconds as fmtPace, sanePaceSecPerMile } from '../lib/units';
 import { SegmentHero } from './SegmentHero';
 import {
   averageMph,
@@ -243,6 +248,14 @@ export function RideScreen({
   const lastLap = closedLaps.at(-1);
   const atLastSegment =
     !!workout && !!session && currentIndex(session) >= workout.segments.length - 1;
+  // The current segment's own clock and average. Live pace says what this
+  // second looks like; this says how the rep is going, which on a seven-minute
+  // tempo is the question actually being asked of the screen.
+  const segElapsed = session && workout ? segmentElapsedMs(session, ride.now) : 0;
+  const segPace =
+    session && workout && !indoor
+      ? sanePaceSecPerMile(segmentDistanceM(session, gps.distanceMeters), segElapsed)
+      : null;
 
   return (
     /* select-none on the whole screen, not just the buttons: a phone carried
@@ -408,7 +421,10 @@ export function RideScreen({
           ) : (
             <>
               {/* With a workout loaded the countdown owns the hero, so pace moves
-                  here — still the largest thing after the segment clock. */}
+                  here — still the largest thing after the segment clock. Beside
+                  it, the segment's own average: mph said the same thing as pace
+                  in other units, and a whole-session average pace means nothing
+                  across a set of reps and rests. */}
               <div className="grid grid-cols-2 gap-2">
                 {workout ? (
                   <>
@@ -419,7 +435,9 @@ export function RideScreen({
                         size="lg"
                       />
                     </div>
-                    <Stat label="total time" value={formatClock(elapsed)} size="lg" />
+                    <div className={dim}>
+                      <Stat label="segment pace" value={formatPaceSeconds(segPace)} size="lg" />
+                    </div>
                   </>
                 ) : (
                   <>
@@ -432,13 +450,16 @@ export function RideScreen({
               </div>
               <div className="grid grid-cols-3 gap-2 border-t border-line pt-3">
                 {workout ? (
-                  <div className={dim}>
-                    <Stat label="mph" value={formatSpeed(mph)} />
-                  </div>
+                  <>
+                    <Stat label="segment" value={formatClock(segElapsed)} />
+                    <Stat label="total time" value={formatClock(elapsed)} />
+                  </>
                 ) : (
-                  <Stat label="avg mph" value={formatSpeed(avgMph)} />
+                  <>
+                    <Stat label="avg mph" value={formatSpeed(avgMph)} />
+                    <Stat label="avg pace" value={formatPace(avgMph)} />
+                  </>
                 )}
-                <Stat label="avg pace" value={formatPace(avgMph)} />
                 <Stat label="distance" value={formatMiles(gps.distanceMeters)} unit="mi" />
               </div>
             </>
@@ -560,12 +581,15 @@ export function RideScreen({
             {/* Changing the workout is not one of the ride controls, and made
                 the row below a four-up: at that width every label wrapped
                 inside its own button — "CONFIRM 4" split across two lines. */}
+            {/* Small print, not a control: it was the largest button on the
+                screen while paused, for the thing done least often. Still a
+                44px hit area, because it is still tapped on a handlebar. */}
             {paused && (
               <button
                 onClick={onOpenPicker}
-                className="mb-2 h-[56px] w-full rounded-2xl border-2 border-line text-base font-bold text-ink active:bg-raised"
+                className="mb-1 flex min-h-[44px] w-full items-center justify-center rounded-lg text-xs font-bold tracking-widest text-muted uppercase active:bg-raised"
               >
-                CHANGE WORKOUT
+                change workout
               </button>
             )}
             <div className="flex gap-2">
